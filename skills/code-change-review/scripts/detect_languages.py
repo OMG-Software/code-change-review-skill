@@ -20,6 +20,7 @@ from __future__ import annotations
 import argparse
 import fnmatch
 import json
+import os
 import re
 import subprocess
 import sys
@@ -111,6 +112,14 @@ IGNORED_EXTENSIONS = {".md", ".txt", ".rst", ".png", ".jpg", ".jpeg", ".gif", ".
                       ".gitattributes", ".editorconfig", ".license"}
 
 
+def _native_to_posix(path: str) -> str:
+    """Turn `\\` into `/` only where it is a path separator (Windows).
+
+    On POSIX a backslash is an ordinary filename character: `tools\\review` is one file.
+    """
+    return path.replace("\\", "/") if os.sep == "\\" else path
+
+
 def classify(path: str, abs_path: Path | None = None) -> list[str]:
     """Return every reference that applies to one file (usually one, sometimes two).
 
@@ -120,7 +129,7 @@ def classify(path: str, abs_path: Path | None = None) -> list[str]:
     A migration written in Ruby or Python needs both its language notes and the
     SQL/migration notes, so path patterns add to the result rather than replacing it.
     """
-    posix = PurePosixPath(path.replace("\\", "/"))
+    posix = PurePosixPath(_native_to_posix(path))
     lower = str(posix).lower()
     name = posix.name.lower()
     ext = posix.suffix.lower()
@@ -189,11 +198,15 @@ def _unquote_git_path(raw: bytes) -> bytes:
 
 
 def read_stdin_paths(data: bytes) -> list[str]:
-    """Split piped pathnames: NUL-delimited (`git diff -z`) or one per line, git quoting undone."""
+    """Split piped pathnames: NUL-delimited (`git diff -z`) or one per line, git quoting undone.
+
+    Only the line ending is removed. Spaces are legal at either end of a filename and git
+    never pads its output, so stripping them would point at a different file.
+    """
     if b"\0" in data:
         names = [p for p in data.split(b"\0") if p]
     else:
-        names = [_unquote_git_path(line.strip()) for line in data.splitlines()]
+        names = [_unquote_git_path(line) for line in data.splitlines() if line.strip()]
     return [n.decode("utf-8", "surrogateescape") for n in names if n]
 
 
@@ -236,7 +249,7 @@ def resolve_inputs(paths: list[str], first_base: Path, other_base: Path, repo_ro
     root = repo_root.resolve()
     out: list[tuple[str, Path | None]] = []
     for p in paths:
-        p_norm = p.replace("\\", "/")
+        p_norm = _native_to_posix(p)
         selected = first_base / p_norm
         found: Path | None = None
         for base in (first_base, other_base):
