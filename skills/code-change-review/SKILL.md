@@ -1,6 +1,6 @@
 ---
 name: code-change-review
-description: Review a code change (local diff, staged changes, branch, commit range, or pull request) for correctness, security, performance, reliability, compatibility, altitude, duplication, simplicity and test quality, with language-specific checks loaded only for the languages the change touches. Use this whenever the user asks to review code, review a diff/PR/branch/commit, check changes before merging or committing, asks "is this safe to ship?", "what did I break?", "look over my changes", or wants a second opinion on a change, even if they don't say the word "review".
+description: Review a code change (local diff, staged changes, branch, commit range, or pull request) for correctness, security, performance, reliability, compatibility, altitude, duplication, simplicity and test quality, with language-specific checks loaded only for the languages the change touches, and report each finding as a comment tagged [CRITICAL], [MAJOR], [MINOR] or [NIT] with the issue, why it matters and a suggested fix. Use this whenever the user asks to review code or a pull request in any form — "review PR 123", "review PR #45", "review this PR https://github.com/org/repo/pull/123", "look at this PR <url>", "review my branch", "review this diff/commit" — or asks to check changes before merging or committing, "is this safe to ship?", "what did I break?", "look over my changes", or wants a second opinion on a change, even if they don't say the word "review".
 ---
 
 # Code Change Review
@@ -19,8 +19,14 @@ Work out exactly what is under review before reading any code. If the user didn'
 | Staged only | `git diff --cached` |
 | Current branch | `git diff $(git merge-base HEAD <base>)` where `<base>` is usually `main`/`master` |
 | Commit range | `git diff A..B` |
-| Pull request | `gh pr diff <n>` and `gh pr view <n>` for the description |
+| Pull request (number or URL) | `gh pr view <n-or-url>` for the description, base and head; `gh pr diff <n-or-url>` for the diff; `gh pr diff <n-or-url> --name-only` for the file list |
 | Specific files | Read them; ask what they changed from if it matters |
+
+**Pull requests.** "Review PR 123" or "review PR #123" means PR 123 in the current repository. A URL (`https://github.com/<owner>/<repo>/pull/<n>`) can be passed to `gh` as is, and works from any directory, even for another repository. For a GitLab merge request use `glab mr view` / `glab mr diff`. The diff alone is not enough context (step 3), so read the PR's versions of the files too:
+
+- If the PR is from the current repository, fetch it without switching branches: `git fetch origin pull/<n>/head:pr-<n>`, then read files with `git show pr-<n>:<path>` and compare against `$(git merge-base pr-<n> <base>)`. Use `gh pr checkout <n>` only if the user is fine with their working tree changing.
+- For another repository, read files at the PR head through `gh api repos/<owner>/<repo>/contents/<path>?ref=<head-sha>`, or clone it to a temporary directory if the review needs a lot of context.
+- Note the PR's existing review comments (`gh pr view <n> --comments`) so you don't repeat what's been raised and resolved.
 
 Also get the **intent**: the PR description, commit messages, linked issue, or ask the user in one line if none exists. You can't judge whether code is right without knowing what it is meant to do.
 
@@ -35,6 +41,7 @@ Run the detector if Python is available (`python` or `python3`):
 ```bash
 python <skill-dir>/scripts/detect_languages.py --git <base>   # branch vs base
 python <skill-dir>/scripts/detect_languages.py --git HEAD     # uncommitted work
+gh pr diff <n-or-url> --name-only | python <skill-dir>/scripts/detect_languages.py   # pull request
 git diff --name-only ... | python <skill-dir>/scripts/detect_languages.py   # any file list
 ```
 
@@ -99,15 +106,17 @@ For each candidate finding:
 
 ### 6. Report
 
-Use `references/reporting.md` for the severity rubric and the exact output template. In short:
+Use `references/reporting.md` for the severity tags, the comment format and the output template. In short:
 
 - Lead with a one-line verdict: whether it is safe to merge, and the biggest issue if any.
-- List findings with the most severe first. Each one gets severity, `file:line`, what's wrong, the failure scenario, and a suggested fix.
-- Default cap of about 10 findings. Mention how many lower-severity items you left out, and list them if the user asks.
-- Keep nits out unless there are no real defects, or the user asked for a thorough pass.
+- **Every finding starts with its severity tag: `[CRITICAL]`, `[MAJOR]`, `[MINOR]` or `[NIT]`**, then a one-line claim and its `file:line`. The body explains, in this order, what the issue is, why it is a problem (the concrete failure scenario), and a suggested fix or improvement wherever you can offer one.
+- List findings with the most severe first. Default cap of about 10. Mention how many lower-severity items you left out, and list them if the user asks.
+- Keep `[NIT]`s out unless there are no real defects, or the user asked for a thorough pass.
 - End with what you did *not* cover (files skimmed, things you couldn't run). An honest scope note is part of the review.
 
-If the host provides a structured findings tool, report through it in the same order instead of printing the list.
+Use the same tag-first format for comments posted on a pull request, so a finding reads the same in the report and on the PR. Post to the PR only when the user asks you to; `references/reporting.md` shows how to post them as one review with inline comments.
+
+If the host provides a structured findings tool, report through it in the same order instead of printing the list, and still start each finding's summary with its tag.
 
 ## Principles
 

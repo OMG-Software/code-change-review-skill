@@ -9,7 +9,7 @@ skills/code-change-review/
 ├── SKILL.md                      # workflow, routing table, priorities (always loaded when the skill triggers)
 ├── references/
 │   ├── review-angles.md          # full language-agnostic checklist
-│   ├── reporting.md              # severity rubric + output template
+│   ├── reporting.md              # severity tags, comment format, report template, posting to a PR
 │   └── languages/                # one file per language, loaded on demand
 │       ├── python.md
 │       ├── javascript-typescript.md
