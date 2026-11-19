@@ -225,8 +225,28 @@ def _git_paths(args: list[str], cwd: Path) -> list[str]:
     return [p.decode("utf-8", "surrogateescape") for p in out.split(b"\0") if p]
 
 
-def files_from_git(ref: str, cwd: Path, head: str | None = None) -> tuple[list[str], Path, str]:
-    """Changed paths since merge-base(ref, head or HEAD), plus the repo root and that base commit.
+_COMMIT_SHA = re.compile(r"[0-9a-f]{40}(?:[0-9a-f]{24})?")   # SHA-1 or SHA-256
+
+
+def resolve_commit(ref: str, root: Path) -> str:
+    """Turn a caller-supplied ref (`main`, `refs/review/pr-12`, a SHA) into a commit SHA.
+
+    Only the SHA is passed on to other git commands, so a value such as `--output=x`
+    can never be read as an option, whoever (or whatever) supplied it.
+    """
+    if not ref or ref.startswith("-"):
+        raise ValueError(f"not a git revision: {ref!r}")
+    out = subprocess.run(["git", "rev-parse", "--verify", "--quiet", "--end-of-options", f"{ref}^{{commit}}"],
+                         cwd=root, capture_output=True, text=True)
+    sha = out.stdout.strip()
+    if out.returncode != 0 or not _COMMIT_SHA.fullmatch(sha):
+        raise ValueError(f"not a commit: {ref!r}")
+    return sha
+
+
+def files_from_git(ref: str, cwd: Path, head: str | None = None) -> tuple[list[str], Path, str, str | None]:
+    """Changed paths since merge-base(ref, head or HEAD), plus the repo root, that base commit
+    and the resolved head commit.
 
     Without `head`, the working tree is compared (uncommitted and untracked files count).
     With `head` (a fetched pull request, say), only commits are compared and the working
@@ -234,12 +254,15 @@ def files_from_git(ref: str, cwd: Path, head: str | None = None) -> tuple[list[s
     `migrations/` still reports the old path and its migration guidance.
     """
     root = Path(_git(["rev-parse", "--show-toplevel"], cwd)[0])
-    base = _git(["merge-base", ref, head or "HEAD"], root)[0]
-    if head:
-        return sorted(_git_paths(["diff", "--name-only", "--no-renames", base, head], root)), root, base
+    ref_sha = resolve_commit(ref, root)
+    head_sha = resolve_commit(head, root) if head else None
+    base = _git(["merge-base", ref_sha, head_sha or "HEAD"], root)[0]
+    if head_sha:
+        changed = _git_paths(["diff", "--name-only", "--no-renames", base, head_sha], root)
+        return sorted(changed), root, base, head_sha
     changed = _git_paths(["diff", "--name-only", "--no-renames", base], root)  # committed + uncommitted
     untracked = _git_paths(["ls-files", "--others", "--exclude-standard"], root)
-    return sorted(set(changed) | set(untracked)), root, base
+    return sorted(set(changed) | set(untracked)), root, base, None
 
 
 def first_line_at(rev: str, root: Path) -> Callable[[str], str | None]:
@@ -434,12 +457,15 @@ def main() -> int:
     read_old: Callable[[str], str | None] | None = None
     if args.git:
         try:
-            files, repo_root, base = files_from_git(args.git, cwd, args.head)
+            files, repo_root, base, head_sha = files_from_git(args.git, cwd, args.head)
             read_old = first_line_at(base, repo_root)
-            if args.head:
+            if head_sha:
                 # The working tree isn't the code under review: read each file from REV,
                 # or from the base if REV deleted it.
-                read_old = _first_of(first_line_at(args.head, repo_root), read_old)
+                read_old = _first_of(first_line_at(head_sha, repo_root), read_old)
+        except ValueError as e:
+            print(f"error: {e}", file=sys.stderr)
+            return 2
         except (subprocess.CalledProcessError, FileNotFoundError) as e:
             err = getattr(e, "stderr", None)
             msg = (err.decode(errors="replace") if isinstance(err, bytes) else err or str(e)).strip()
