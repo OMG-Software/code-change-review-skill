@@ -140,7 +140,9 @@ def classify(path: str, abs_path: Path | None = None) -> list[str]:
     for ref, labels, yaml_only in PATH_RULES:
         if (is_yaml or not yaml_only) and any(_path_rule_matches(lb, lower, name) for lb in labels):
             add(ref)
-    if not refs and not ext and abs_path is not None:
+    # Probe extensionless files even when a path rule already matched: an extensionless
+    # Python script under migrations/ needs python.md as well as sql.md.
+    if not ext and abs_path is not None:
         add(_from_shebang(abs_path))
     return refs
 
@@ -174,6 +176,17 @@ def files_from_git(ref: str, cwd: Path) -> tuple[list[str], Path]:
     return sorted(set(changed) | set(untracked)), root
 
 
+def _without_final_symlink(path: Path) -> Path:
+    """Make `path` absolute and canonical, resolving its directories but not its final name.
+
+    `Path.resolve()` would follow a symlinked file to its target and classify the target's
+    path instead of the one that changed.
+    """
+    if path.name in ("", ".", ".."):
+        return path.resolve()
+    return path.parent.resolve() / path.name
+
+
 def resolve_inputs(paths: list[str], first_base: Path, other_base: Path, repo_root: Path) -> list[tuple[str, Path | None]]:
     """Pair each path with a repo-root-relative name (for path patterns) and its location on disk.
 
@@ -181,19 +194,23 @@ def resolve_inputs(paths: list[str], first_base: Path, other_base: Path, repo_ro
     relative to the invocation directory, while git output is relative to the repo root,
     so callers choose the order. Files that don't exist (deleted in the change) keep a
     name computed from `first_base` and get no on-disk path.
+
+    The name always comes from the path that was given, not from where a symlink points:
+    a changed `migrations/001.py` that links to `../helpers/001.py` is still a migration.
     """
     root = repo_root.resolve()
     out: list[tuple[str, Path | None]] = []
     for p in paths:
         p_norm = p.replace("\\", "/")
+        selected = first_base / p_norm
         found: Path | None = None
         for base in (first_base, other_base):
             candidate = base / p_norm
             if candidate.is_file():
-                found = candidate.resolve()
+                selected, found = candidate, candidate.resolve()
                 break
         try:
-            rel = (found or (first_base / p_norm).resolve()).relative_to(root).as_posix()
+            rel = _without_final_symlink(selected).relative_to(root).as_posix()
         except ValueError:
             rel = p_norm  # outside the repo; match on the path as given
         out.append((rel, found))
