@@ -7,6 +7,7 @@ the review loads the guidance it needs and nothing else.
 Usage:
   detect_languages.py --git main          # files changed since merge-base with main (incl. uncommitted + untracked)
   detect_languages.py --git HEAD          # uncommitted + untracked changes only
+  detect_languages.py --git origin/main --head refs/review/pr-123   # a fetched PR; working tree ignored
   git diff --name-only A..B | detect_languages.py   # git-quoted names are decoded; -z output also works
   detect_languages.py path/a.py path/b.go
   detect_languages.py --json ...          # machine-readable output
@@ -224,21 +225,25 @@ def _git_paths(args: list[str], cwd: Path) -> list[str]:
     return [p.decode("utf-8", "surrogateescape") for p in out.split(b"\0") if p]
 
 
-def files_from_git(ref: str, cwd: Path) -> tuple[list[str], Path, str]:
-    """Changed paths since merge-base(ref, HEAD), plus the repo root and that base commit.
+def files_from_git(ref: str, cwd: Path, head: str | None = None) -> tuple[list[str], Path, str]:
+    """Changed paths since merge-base(ref, head or HEAD), plus the repo root and that base commit.
 
-    `--no-renames` lists a rename as delete + add, so moving a file out of `migrations/`
-    still reports the old path and its migration guidance.
+    Without `head`, the working tree is compared (uncommitted and untracked files count).
+    With `head` (a fetched pull request, say), only commits are compared and the working
+    tree is ignored. `--no-renames` lists a rename as delete + add, so moving a file out of
+    `migrations/` still reports the old path and its migration guidance.
     """
     root = Path(_git(["rev-parse", "--show-toplevel"], cwd)[0])
-    base = _git(["merge-base", ref, "HEAD"], root)[0]
+    base = _git(["merge-base", ref, head or "HEAD"], root)[0]
+    if head:
+        return sorted(_git_paths(["diff", "--name-only", "--no-renames", base, head], root)), root, base
     changed = _git_paths(["diff", "--name-only", "--no-renames", base], root)  # committed + uncommitted
     untracked = _git_paths(["ls-files", "--others", "--exclude-standard"], root)
     return sorted(set(changed) | set(untracked)), root, base
 
 
 def first_line_at(rev: str, root: Path) -> Callable[[str], str | None]:
-    """Return a reader for a file's first line at `rev` (for files deleted since then).
+    """Return a reader for a file's first line at `rev` (deleted files, or a commit under review).
 
     Only the first 200 bytes are read from git; the process is then stopped, so a large
     deleted binary is never buffered just to look for a shebang.
@@ -254,6 +259,17 @@ def first_line_at(rev: str, root: Path) -> Callable[[str], str | None]:
                 proc.kill()
             proc.wait()
         return head.split(b"\n", 1)[0].decode("utf-8", "replace") if head else None
+    return read
+
+
+def _first_of(*readers: Callable[[str], str | None]) -> Callable[[str], str | None]:
+    """Combine first-line readers: the first one that finds the file wins."""
+    def read(path: str) -> str | None:
+        for reader in readers:
+            line = reader(path)
+            if line is not None:
+                return line
+        return None
     return read
 
 
@@ -396,6 +412,8 @@ def main() -> int:
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("files", nargs="*", help="changed file paths (otherwise read from stdin or --git)")
     ap.add_argument("--git", metavar="REF", help="diff the working tree against merge-base(REF, HEAD)")
+    ap.add_argument("--head", metavar="REV", help="with --git: diff REV (e.g. a fetched PR) against merge-base(REF, REV) "
+                                                  "and read file contents from REV, ignoring the working tree")
     ap.add_argument("--json", action="store_true", help="emit JSON")
     ap.add_argument("--check", action="store_true", help="validate the skill's language mapping and exit")
     args = ap.parse_args()
@@ -409,12 +427,19 @@ def main() -> int:
     if args.check:
         return check()
 
+    if args.head and not args.git:
+        ap.error("--head needs --git BASE")
+
     cwd = Path.cwd()
     read_old: Callable[[str], str | None] | None = None
     if args.git:
         try:
-            files, repo_root, base = files_from_git(args.git, cwd)
+            files, repo_root, base = files_from_git(args.git, cwd, args.head)
             read_old = first_line_at(base, repo_root)
+            if args.head:
+                # The working tree isn't the code under review: read each file from REV,
+                # or from the base if REV deleted it.
+                read_old = _first_of(first_line_at(args.head, repo_root), read_old)
         except (subprocess.CalledProcessError, FileNotFoundError) as e:
             err = getattr(e, "stderr", None)
             msg = (err.decode(errors="replace") if isinstance(err, bytes) else err or str(e)).strip()
@@ -435,7 +460,9 @@ def main() -> int:
 
     # git output is root-relative; command-line arguments are relative to where you ran
     # the script. Piped lists usually come from `git diff --name-only` (root-relative).
-    if args.files and not args.git:
+    if args.head:
+        entries = [(f, None) for f in files]   # never look at local files for a commit under review
+    elif args.files and not args.git:
         entries = resolve_inputs(files, cwd, repo_root, repo_root)
     else:
         entries = resolve_inputs(files, repo_root, cwd, repo_root)

@@ -24,9 +24,13 @@ Work out exactly what is under review before reading any code. If the user didn'
 
 **Pull requests.** "Review PR 123" or "review PR #123" means PR 123 in the current repository. A URL (`https://github.com/<owner>/<repo>/pull/<n>`) can be passed to `gh` as is, and works from any directory, even for another repository. For a GitLab merge request use `glab mr view` / `glab mr diff`. The diff alone is not enough context (step 3), so read the PR's versions of the files too:
 
-- If the PR is from the current repository, fetch it without switching branches: `git fetch origin pull/<n>/head:pr-<n>`, then read files with `git show pr-<n>:<path>` and compare against `$(git merge-base pr-<n> <base>)`. Use `gh pr checkout <n>` only if the user is fine with their working tree changing.
+- If the PR is from the current repository, fetch it and its base without switching branches, into a dedicated ref that is force-updated so a rebased PR replaces any copy from an earlier review: `git fetch origin <base> +refs/pull/<n>/head:refs/review/pr-<n>`. If the fetch fails, stop and say so rather than review a stale copy. Then read files with `git show refs/review/pr-<n>:<path>` and compare against `$(git merge-base refs/review/pr-<n> origin/<base>)`. Use `gh pr checkout <n>` only if the user is fine with their working tree changing.
 - For another repository, read files at the PR head through `gh api repos/<owner>/<repo>/contents/<path>?ref=<head-sha>`, or clone it to a temporary directory if the review needs a lot of context.
-- Note the PR's existing review comments (`gh pr view <n> --comments`) so you don't repeat what's been raised and resolved.
+- Read the existing feedback so you don't repeat what's been raised, answered or resolved. `gh pr view <n> --comments` shows only top-level comments; inline review threads, their replies and whether each is resolved come from GraphQL:
+
+  ```bash
+  gh api graphql -F owner=<owner> -F repo=<repo> -F n=<n> -f query='query($owner:String!,$repo:String!,$n:Int!){repository(owner:$owner,name:$repo){pullRequest(number:$n){reviewThreads(first:100){nodes{isResolved isOutdated path line comments(first:50){nodes{author{login} body}}}}}}}'
+  ```
 
 Also get the **intent**: the PR description, commit messages, linked issue, or ask the user in one line if none exists. You can't judge whether code is right without knowing what it is meant to do.
 
@@ -41,9 +45,11 @@ Run the detector if Python is available (`python` or `python3`):
 ```bash
 python <skill-dir>/scripts/detect_languages.py --git <base>   # branch vs base
 python <skill-dir>/scripts/detect_languages.py --git HEAD     # uncommitted work
-gh pr diff <n-or-url> --name-only | python <skill-dir>/scripts/detect_languages.py   # pull request
+python <skill-dir>/scripts/detect_languages.py --git origin/<base> --head refs/review/pr-<n>   # fetched PR
 git diff --name-only ... | python <skill-dir>/scripts/detect_languages.py   # any file list
 ```
+
+For a pull request, use `--head` with the ref fetched in step 1. The detector then reads shebangs from the PR's commit, not from your working tree, which may lack the PR's new scripts or hold different versions of them. For a PR in another repository, `gh pr diff <url> --name-only | python <skill-dir>/scripts/detect_languages.py` gives the file list, but it can't see file contents. Check the first line of each extensionless file it reports as unmapped and route it with the shebang table below.
 
 It prints the reference files to read and which changed files triggered each one. Without Python, use this table, which matches the detector exactly. Filenames match case-insensitively.
 
