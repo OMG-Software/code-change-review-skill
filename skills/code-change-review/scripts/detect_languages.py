@@ -231,15 +231,16 @@ _COMMIT_SHA = re.compile(r"[0-9a-f]{40}(?:[0-9a-f]{24})?")   # SHA-1 or SHA-256
 def resolve_commit(ref: str, root: Path) -> str:
     """Turn a caller-supplied ref (`main`, `refs/review/pr-12`, a SHA) into a commit SHA.
 
-    Only the SHA is passed on to other git commands, so a value such as `--output=x`
-    can never be read as an option, whoever (or whatever) supplied it.
+    The ref goes to git on stdin (`cat-file --batch-check`), never on the command line,
+    so a value such as `--output=x` can't be read as an option whoever supplied it. Only
+    the resulting SHA is passed on to other git commands.
     """
-    if not ref or ref.startswith("-"):
+    if not ref or "\n" in ref or "\r" in ref:
         raise ValueError(f"not a git revision: {ref!r}")
-    out = subprocess.run(["git", "rev-parse", "--verify", "--quiet", "--end-of-options", f"{ref}^{{commit}}"],
-                         cwd=root, capture_output=True, text=True)
-    sha = out.stdout.strip()
-    if out.returncode != 0 or not _COMMIT_SHA.fullmatch(sha):
+    out = subprocess.run(["git", "cat-file", "--batch-check=%(objectname) %(objecttype)"],
+                         cwd=root, input=f"{ref}^{{commit}}\n", capture_output=True, text=True)
+    sha, _, kind = out.stdout.strip().partition(" ")
+    if out.returncode != 0 or kind != "commit" or not _COMMIT_SHA.fullmatch(sha):
         raise ValueError(f"not a commit: {ref!r}")
     return sha
 

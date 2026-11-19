@@ -36,8 +36,10 @@ Work out exactly what is under review before reading any code. If the user didn'
 - Read the existing feedback so you don't repeat what's been raised, answered or resolved. `gh pr view <n> --comments` shows only top-level comments; inline review threads, their replies and whether each is resolved come from GraphQL:
 
   ```bash
-  gh api graphql -F owner=<owner> -F repo=<repo> -F n=<n> -f query='query($owner:String!,$repo:String!,$n:Int!){repository(owner:$owner,name:$repo){pullRequest(number:$n){reviewThreads(first:100){nodes{isResolved isOutdated path line comments(first:50){nodes{author{login} body}}}}}}}'
+  gh api graphql --paginate -F owner=<owner> -F repo=<repo> -F n=<n> -f query='query($owner:String!,$repo:String!,$n:Int!,$endCursor:String){repository(owner:$owner,name:$repo){pullRequest(number:$n){reviewThreads(first:100,after:$endCursor){pageInfo{hasNextPage endCursor} nodes{id isResolved isOutdated path line comments(first:100){totalCount nodes{author{login} body}}}}}}}'
   ```
+
+  `--paginate` follows the threads past the first 100. A thread whose `comments.totalCount` is over 100 has more replies; fetch them with `node(id:<thread id>){... on PullRequestReviewThread{comments(first:100,after:<cursor>){…}}}` before relying on it.
 
 Also get the **intent**: the PR description, commit messages, linked issue, or ask the user in one line if none exists. You can't judge whether code is right without knowing what it is meant to do.
 
@@ -56,7 +58,7 @@ python <skill-dir>/scripts/detect_languages.py --git <remote>/<base> --head refs
 git diff --name-only ... | python <skill-dir>/scripts/detect_languages.py   # any file list
 ```
 
-For a pull request, use `--head` with the ref fetched in step 1. The detector then reads shebangs from the PR's commit, not from your working tree, which may lack the PR's new scripts or hold different versions of them. For a PR in another repository, `gh pr diff <url> --name-only | python <skill-dir>/scripts/detect_languages.py` gives the file list, but it can't see file contents. Check the first line of each extensionless file it reports as unmapped and route it with the shebang table below.
+For a pull request, use `--head` with the ref fetched in step 1. The detector then reads shebangs from the PR's commit, not from your working tree, which may lack the PR's new scripts or hold different versions of them. For a PR in another repository, `gh pr diff <url> --name-only | python <skill-dir>/scripts/detect_languages.py` gives the file list, but it can't see file contents. Check the first line of **every** extensionless file in the list, mapped or not (a Python script under `migrations/` is already mapped to `sql.md` but still needs `python.md`): read it at the PR head, or at the base if the PR deletes it, and route it with the shebang table below.
 
 It prints the reference files to read and which changed files triggered each one. Without Python, use this table, which matches the detector exactly. Filenames match case-insensitively.
 
