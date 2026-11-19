@@ -25,6 +25,7 @@ import re
 import subprocess
 import sys
 from pathlib import Path, PurePosixPath
+from typing import Callable
 
 SKILL_DIR = Path(__file__).resolve().parent.parent
 LANG_DIR = SKILL_DIR / "references" / "languages"
@@ -120,11 +121,14 @@ def _native_to_posix(path: str) -> str:
     return path.replace("\\", "/") if os.sep == "\\" else path
 
 
-def classify(path: str, abs_path: Path | None = None) -> list[str]:
+def classify(path: str, abs_path: Path | None = None,
+             read_old_first_line: Callable[[str], str | None] | None = None) -> list[str]:
     """Return every reference that applies to one file (usually one, sometimes two).
 
     `path` is repo-root-relative where possible (path patterns match against it);
     `abs_path` is where the file actually is on disk, used only to read a shebang.
+    `read_old_first_line` returns a deleted file's first line from the base revision,
+    so a deleted extensionless script still routes by its shebang.
 
     A migration written in Ruby or Python needs both its language notes and the
     SQL/migration notes, so path patterns add to the result rather than replacing it.
@@ -151,8 +155,11 @@ def classify(path: str, abs_path: Path | None = None) -> list[str]:
             add(ref)
     # Probe extensionless files even when a path rule already matched: an extensionless
     # Python script under migrations/ needs python.md as well as sql.md.
-    if not ext and abs_path is not None:
-        add(_from_shebang(abs_path))
+    if not ext:
+        if abs_path is not None:
+            add(_from_shebang(abs_path))
+        elif read_old_first_line is not None:              # deleted: read it from the base
+            add(shebang_ref(read_old_first_line(path) or ""))
     return refs
 
 
@@ -217,12 +224,27 @@ def _git_paths(args: list[str], cwd: Path) -> list[str]:
     return [p.decode("utf-8", "surrogateescape") for p in out.split(b"\0") if p]
 
 
-def files_from_git(ref: str, cwd: Path) -> tuple[list[str], Path]:
+def files_from_git(ref: str, cwd: Path) -> tuple[list[str], Path, str]:
+    """Changed paths since merge-base(ref, HEAD), plus the repo root and that base commit.
+
+    `--no-renames` lists a rename as delete + add, so moving a file out of `migrations/`
+    still reports the old path and its migration guidance.
+    """
     root = Path(_git(["rev-parse", "--show-toplevel"], cwd)[0])
     base = _git(["merge-base", ref, "HEAD"], root)[0]
-    changed = _git_paths(["diff", "--name-only", base], root)      # committed since base + uncommitted
+    changed = _git_paths(["diff", "--name-only", "--no-renames", base], root)  # committed + uncommitted
     untracked = _git_paths(["ls-files", "--others", "--exclude-standard"], root)
-    return sorted(set(changed) | set(untracked)), root
+    return sorted(set(changed) | set(untracked)), root, base
+
+
+def first_line_at(rev: str, root: Path) -> Callable[[str], str | None]:
+    """Return a reader for a file's first line at `rev` (for files deleted since then)."""
+    def read(path: str) -> str | None:
+        r = subprocess.run(["git", "cat-file", "blob", f"{rev}:{path}"], cwd=root, capture_output=True)
+        if r.returncode != 0:
+            return None
+        return r.stdout[:200].split(b"\n", 1)[0].decode("utf-8", "replace")
+    return read
 
 
 def _without_final_symlink(path: Path) -> Path:
@@ -266,11 +288,12 @@ def resolve_inputs(paths: list[str], first_base: Path, other_base: Path, repo_ro
     return out
 
 
-def detect(entries: list[tuple[str, Path | None]]) -> dict:
+def detect(entries: list[tuple[str, Path | None]],
+           read_old_first_line: Callable[[str], str | None] | None = None) -> dict:
     matched: dict[str, list[str]] = {}
     unmapped: list[str] = []
     for rel, abs_path in entries:
-        refs = classify(rel, abs_path)
+        refs = classify(rel, abs_path, read_old_first_line)
         for ref in refs:
             matched.setdefault(ref, []).append(rel)
         if not refs and PurePosixPath(rel).suffix.lower() not in IGNORED_EXTENSIONS:
@@ -348,6 +371,9 @@ def check() -> int:
         missing = sorted(rules - table[ref])
         if missing:
             problems.append(f"SKILL.md tables for {ref}.md are missing: {', '.join(missing)}")
+        stale = sorted(table[ref] - rules)
+        if stale:
+            problems.append(f"SKILL.md tables for {ref}.md list entries the detector doesn't route: {', '.join(stale)}")
 
     for p in problems:
         print(f"FAIL  {p}")
@@ -374,9 +400,11 @@ def main() -> int:
         return check()
 
     cwd = Path.cwd()
+    read_old: Callable[[str], str | None] | None = None
     if args.git:
         try:
-            files, repo_root = files_from_git(args.git, cwd)
+            files, repo_root, base = files_from_git(args.git, cwd)
+            read_old = first_line_at(base, repo_root)
         except (subprocess.CalledProcessError, FileNotFoundError) as e:
             err = getattr(e, "stderr", None)
             msg = (err.decode(errors="replace") if isinstance(err, bytes) else err or str(e)).strip()
@@ -402,7 +430,7 @@ def main() -> int:
     else:
         entries = resolve_inputs(files, repo_root, cwd, repo_root)
 
-    result = detect(entries)
+    result = detect(entries, read_old)
     if args.json:
         print(json.dumps(result, indent=2))
     else:

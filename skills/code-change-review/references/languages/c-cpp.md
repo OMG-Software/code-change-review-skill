@@ -15,7 +15,8 @@ Covers `.c`, `.h`, `.cc`, `.cpp`, `.cxx`, `.hpp`, `.hh`, `.m`, `.mm` (plus `CMak
 - Null dereference; strict aliasing violations (type-punning through pointer casts); unaligned access.
 - Shifts by negative amounts or by at least the type width; sequence-point violations (`i = i++`).
 - Data races (UB in the C++ memory model).
-- Calling virtual functions from constructors or destructors; deleting through a base pointer without a virtual destructor.
+- Calling a pure virtual function (directly or through a helper) from a constructor or destructor; deleting through a base pointer without a virtual destructor.
+- Not UB but often a bug: a non-pure virtual call in a constructor or destructor runs the class under construction's version, not the derived override. Flag it only when the code expects the derived one.
 
 ## C++ resource management
 - Raw `new`/`delete` in new code where `std::unique_ptr`/`make_unique` fits; ownership unclear at API boundaries.
