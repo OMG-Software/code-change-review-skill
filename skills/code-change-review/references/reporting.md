@@ -83,7 +83,7 @@ if amount > order.balance:
 
 Post only when the user asks. Submit everything as **one review**, so the author gets a single notification and the comments arrive together:
 
-1. Get the head commit: `gh pr view <n> --json headRefOid --jq .headRefOid`.
+1. Get the head commit from the PR's own repository: `gh pr view <pr-url> --json headRefOid --jq .headRefOid`, or `gh pr view <n> --repo <owner>/<repo> …`. A bare number resolves against the current repository, which may be a different one. Use the same `<owner>/<repo>` in step 3.
 2. Write the review to a JSON file (comment bodies contain backticks and newlines, so don't pass them on the command line):
 
    ```json
