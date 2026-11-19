@@ -39,7 +39,7 @@ Covers `.go` (plus `go.mod`/`go.sum` changes). Use with `review-angles.md`. Chec
 ## Security
 - `exec.Command("sh", "-c", userString)`; prefer an args array.
 - SQL built with `fmt.Sprintf`; use placeholders.
-- `filepath.Join(base, userInput)` traversal; check with `filepath.Rel`, or `os.Root` (Go 1.24+).
+- `filepath.Join(base, userInput)` traversal. `filepath.Clean`/`filepath.Rel` checks are lexical only: they don't stop symlink escapes (`base/link -> /etc`). That matters when an attacker can create directory entries, as with archive extraction, uploads or shared directories. In those cases require a traversal-resistant open such as `os.Root`/`os.OpenInRoot` (Go 1.24+), not a `Rel` check.
 - `text/template` used for HTML (no escaping); use `html/template`.
 - `math/rand` for secrets; use `crypto/rand`.
 - `InsecureSkipVerify: true`.

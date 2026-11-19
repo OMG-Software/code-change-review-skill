@@ -38,7 +38,7 @@ EXTENSIONS: dict[str, set[str]] = {
     "c-cpp": {".c", ".h", ".cc", ".cpp", ".cxx", ".c++", ".hpp", ".hh", ".hxx", ".inl", ".ipp", ".m", ".mm"},
     "ruby": {".rb", ".erb", ".rake", ".gemspec", ".ru"},
     "php": {".php", ".phtml"},
-    "swift": {".swift"},
+    "swift": {".swift", ".pbxproj"},
     "sql": {".sql", ".psql", ".pgsql", ".ddl"},
     "shell": {".sh", ".bash", ".zsh", ".ksh", ".fish", ".ps1", ".psm1", ".psd1", ".bat", ".cmd"},
     "infrastructure": {".tf", ".tfvars", ".hcl", ".dockerfile"},
@@ -85,8 +85,11 @@ IGNORED_EXTENSIONS = {".md", ".txt", ".rst", ".png", ".jpg", ".jpeg", ".gif", ".
                       ".gitattributes", ".editorconfig", ".license"}
 
 
-def classify(path: str, repo_root: Path | None) -> list[str]:
+def classify(path: str, abs_path: Path | None = None) -> list[str]:
     """Return every reference that applies to one file (usually one, sometimes two).
+
+    `path` is repo-root-relative where possible (path patterns match against it);
+    `abs_path` is where the file actually is on disk, used only to read a shebang.
 
     A migration written in Ruby or Python needs both its language notes and the
     SQL/migration notes, so path patterns add to the result rather than replacing it.
@@ -110,8 +113,8 @@ def classify(path: str, repo_root: Path | None) -> list[str]:
     for ref, pattern in PATH_PATTERNS:
         if pattern.search(lower):
             add(ref)
-    if not refs and not ext and repo_root is not None:
-        add(_from_shebang(repo_root / path))
+    if not refs and not ext and abs_path is not None:
+        add(_from_shebang(abs_path))
     return refs
 
 
@@ -130,34 +133,67 @@ def _from_shebang(file: Path) -> str | None:
 
 
 def _git(args: list[str], cwd: Path) -> list[str]:
+    """Run git and return stripped output lines (for refs and paths git never quotes)."""
     out = subprocess.run(["git", *args], cwd=cwd, capture_output=True, text=True, check=True).stdout
     return [line.strip() for line in out.splitlines() if line.strip()]
+
+
+def _git_paths(args: list[str], cwd: Path) -> list[str]:
+    """Run a git pathname command with -z so unusual names (non-ASCII, quotes, newlines) arrive verbatim."""
+    out = subprocess.run(["git", *args, "-z"], cwd=cwd, capture_output=True, check=True).stdout
+    return [p.decode("utf-8", "surrogateescape") for p in out.split(b"\0") if p]
 
 
 def files_from_git(ref: str, cwd: Path) -> tuple[list[str], Path]:
     root = Path(_git(["rev-parse", "--show-toplevel"], cwd)[0])
     base = _git(["merge-base", ref, "HEAD"], root)[0]
-    changed = _git(["diff", "--name-only", base], root)          # committed since base + uncommitted
-    untracked = _git(["ls-files", "--others", "--exclude-standard"], root)
+    changed = _git_paths(["diff", "--name-only", base], root)      # committed since base + uncommitted
+    untracked = _git_paths(["ls-files", "--others", "--exclude-standard"], root)
     return sorted(set(changed) | set(untracked)), root
 
 
-def detect(files: list[str], repo_root: Path | None) -> dict:
+def resolve_inputs(paths: list[str], first_base: Path, other_base: Path, repo_root: Path) -> list[tuple[str, Path | None]]:
+    """Pair each path with a repo-root-relative name (for path patterns) and its location on disk.
+
+    Paths are tried against `first_base`, then `other_base`. Command-line arguments are
+    relative to the invocation directory, while git output is relative to the repo root,
+    so callers choose the order. Files that don't exist (deleted in the change) keep a
+    name computed from `first_base` and get no on-disk path.
+    """
+    root = repo_root.resolve()
+    out: list[tuple[str, Path | None]] = []
+    for p in paths:
+        p_norm = p.replace("\\", "/")
+        found: Path | None = None
+        for base in (first_base, other_base):
+            candidate = base / p_norm
+            if candidate.is_file():
+                found = candidate.resolve()
+                break
+        try:
+            rel = (found or (first_base / p_norm).resolve()).relative_to(root).as_posix()
+        except ValueError:
+            rel = p_norm  # outside the repo; match on the path as given
+        out.append((rel, found))
+    return out
+
+
+def detect(entries: list[tuple[str, Path | None]]) -> dict:
     matched: dict[str, list[str]] = {}
     unmapped: list[str] = []
-    for f in files:
-        refs = classify(f, repo_root)
+    for rel, abs_path in entries:
+        refs = classify(rel, abs_path)
         for ref in refs:
-            matched.setdefault(ref, []).append(f)
-        if not refs and PurePosixPath(f.replace("\\", "/")).suffix.lower() not in IGNORED_EXTENSIONS:
-            unmapped.append(f)
+            matched.setdefault(ref, []).append(rel)
+        if not refs and PurePosixPath(rel).suffix.lower() not in IGNORED_EXTENSIONS:
+            unmapped.append(rel)
     return {
         "references": [
             {"file": f"references/languages/{ref}.md", "triggered_by": sorted(paths)}
             for ref, paths in sorted(matched.items(), key=lambda kv: -len(kv[1]))
         ],
         "unmapped": sorted(unmapped),
-        "total_files": len(files),
+        "total_files": len(entries),
     }
 
 
@@ -180,23 +216,49 @@ def print_human(result: dict) -> None:
             print(f"  ... +{len(result['unmapped']) - 20} more")
 
 
+TABLE_ROW = re.compile(r"^\|(?P<cell>.+?)\|\s*`references/languages/(?P<ref>[\w.-]+)\.md`\s*\|\s*$", re.MULTILINE)
+
+
+def parse_routing_table(skill_md: str) -> dict[str, set[str]]:
+    """SKILL.md routing table -> {reference: lowercase backticked tokens in its 'Changed files' cell}."""
+    table: dict[str, set[str]] = {}
+    for m in TABLE_ROW.finditer(skill_md):
+        tokens = {t.strip().lower() for t in re.findall(r"`([^`]+)`", m.group("cell"))}
+        table.setdefault(m.group("ref"), set()).update(tokens)
+    return table
+
+
 def check() -> int:
-    """Catch drift between this script, the reference files and the SKILL.md routing table."""
+    """Catch drift between this script, the reference files and the SKILL.md routing table.
+
+    The table is the no-Python fallback, so it must route every extension and filename
+    the detector knows, and must not point at references that don't exist.
+    """
     problems: list[str] = []
     mapped = set(EXTENSIONS) | set(FILENAMES) | {ref for ref, _ in PATH_PATTERNS} | {ref for ref, _ in SHEBANGS}
     present = {p.stem for p in LANG_DIR.glob("*.md")}
-    skill_md = (SKILL_DIR / "SKILL.md").read_text(encoding="utf-8")
+    table = parse_routing_table((SKILL_DIR / "SKILL.md").read_text(encoding="utf-8"))
+    tabled = set(table)
+
     for ref in sorted(mapped - present):
-        problems.append(f"mapped but missing file: references/languages/{ref}.md")
+        problems.append(f"detector maps to a missing file: references/languages/{ref}.md")
     for ref in sorted(present - mapped):
         problems.append(f"reference file never selected by the detector: references/languages/{ref}.md")
-    for ref in sorted(present):
-        if f"references/languages/{ref}.md" not in skill_md:
-            problems.append(f"SKILL.md routing table does not mention references/languages/{ref}.md")
+    for ref in sorted(present - tabled):
+        problems.append(f"SKILL.md routing table has no row for references/languages/{ref}.md")
+    for ref in sorted(tabled - present):
+        problems.append(f"SKILL.md routing table points to a missing file: references/languages/{ref}.md")
+    for ref in sorted(tabled - mapped):
+        problems.append(f"SKILL.md routing table row not known to the detector: references/languages/{ref}.md")
+    for ref in sorted(tabled & mapped):
+        missing = sorted((EXTENSIONS.get(ref, set()) | FILENAMES.get(ref, set())) - table[ref])
+        if missing:
+            problems.append(f"SKILL.md row for {ref}.md is missing: {', '.join(missing)}")
+
     for p in problems:
         print(f"FAIL  {p}")
     if not problems:
-        print(f"OK  {len(present)} language references; detector and SKILL.md table agree.")
+        print(f"OK  {len(present)} language references; detector, files and SKILL.md table agree.")
     return 1 if problems else 0
 
 
@@ -208,32 +270,45 @@ def main() -> int:
     ap.add_argument("--check", action="store_true", help="validate the skill's language mapping and exit")
     args = ap.parse_args()
 
+    # Filenames can hold characters the console encoding can't show (e.g. cp1252 on
+    # Windows); escape them instead of crashing mid-report.
+    for stream in (sys.stdout, sys.stderr):
+        if hasattr(stream, "reconfigure"):
+            stream.reconfigure(errors="backslashreplace")
+
     if args.check:
         return check()
 
-    repo_root: Path | None = None
+    cwd = Path.cwd()
     if args.git:
         try:
-            files, repo_root = files_from_git(args.git, Path.cwd())
+            files, repo_root = files_from_git(args.git, cwd)
         except (subprocess.CalledProcessError, FileNotFoundError) as e:
-            msg = e.stderr.strip() if isinstance(e, subprocess.CalledProcessError) and e.stderr else str(e)
+            err = getattr(e, "stderr", None)
+            msg = (err.decode(errors="replace") if isinstance(err, bytes) else err or str(e)).strip()
             print(f"git failed: {msg}", file=sys.stderr)
             return 2
-    elif args.files:
-        files = args.files
-    elif not sys.stdin.isatty():
-        files = [line.strip() for line in sys.stdin if line.strip()]
     else:
-        ap.print_help()
-        return 2
-
-    if repo_root is None:
         try:
-            repo_root = Path(_git(["rev-parse", "--show-toplevel"], Path.cwd())[0])
+            repo_root = Path(_git(["rev-parse", "--show-toplevel"], cwd)[0])
         except (subprocess.CalledProcessError, FileNotFoundError, IndexError):
-            repo_root = Path.cwd()
+            repo_root = cwd
+        if args.files:
+            files = args.files
+        elif not sys.stdin.isatty():
+            files = [line.strip() for line in sys.stdin if line.strip()]
+        else:
+            ap.print_help()
+            return 2
 
-    result = detect(files, repo_root)
+    # git output is root-relative; command-line arguments are relative to where you ran
+    # the script. Piped lists usually come from `git diff --name-only` (root-relative).
+    if args.files and not args.git:
+        entries = resolve_inputs(files, cwd, repo_root, repo_root)
+    else:
+        entries = resolve_inputs(files, repo_root, cwd, repo_root)
+
+    result = detect(entries)
     if args.json:
         print(json.dumps(result, indent=2))
     else:

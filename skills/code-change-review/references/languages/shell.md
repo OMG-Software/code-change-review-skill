@@ -6,18 +6,19 @@ Covers `.sh`, `.bash`, `.zsh`, `.ps1`, `.psm1`, `.bat`, `.cmd`, scripts with she
 
 ### Correctness
 - **Unquoted variables** (`$var`, `$@`, `$(cmd)`): word splitting and globbing break on spaces and wildcards. Quote everything: `"$var"`, `"$@"`.
-- Missing `set -euo pipefail` (or the codebase's equivalent) in scripts where failures should stop execution; `set -e` pitfalls (doesn't trigger inside `if`, `&&` chains or subshell command substitutions in some contexts).
+- Missing `set -eu` (plus `set -o pipefail` where the target shell supports it: bash, zsh, ksh, BusyBox ash) in scripts where failures should stop execution. Some `/bin/sh` implementations, such as older dash, reject `pipefail` and abort at that line, so in POSIX `#!/bin/sh` scripts check pipeline failures explicitly instead. `set -e` pitfalls: it doesn't trigger inside `if`, `&&`/`||` chains or some command substitutions.
 - Bashisms (`[[ ]]`, arrays, `local`, `${var//x/y}`) in scripts with `#!/bin/sh` (dash on Debian/Ubuntu).
 - `cd dir` without `|| exit` (later commands run in the wrong directory, which is dangerous with `rm`).
 - Parsing `ls` output; `for f in $(find …)` (breaks on spaces; use `find -print0 | xargs -0` or `while IFS= read -r`).
 - `read` without `-r` (backslashes mangled).
-- `[ $x = y ]` with empty `$x` (syntax error); use quotes or `[[ ]]`.
+- `[ $x = y ]` with empty `$x` (syntax error); quote it: `[ "$x" = y ]`. Suggest `[[ ]]` only for bash/zsh/ksh scripts, never in `#!/bin/sh`.
 - Exit codes lost through pipes (without `pipefail`) or by `local var=$(cmd)` (masks the cmd's status).
 - GNU versus BSD/macOS tool differences: `sed -i`, `date -d`, `readlink -f`, `grep -P`, `xargs -r`.
 
 ### Safety and security
 - `rm -rf "$DIR/"*` where `DIR` may be empty or unset, giving `rm -rf /*`. Use `${DIR:?}`.
-- `eval` on anything derived from input; unquoted input passed to commands (argument injection: values starting with `-`; use `--`).
+- `eval` on anything derived from input.
+- Option injection: quoting doesn't help. `rm "$arg" "$dir"` with `arg=-r` still becomes a flag. Wherever an untrusted value is passed as an argument, quoted or not, check for `--` before it (where the command supports it), or for prefixing relative paths with `./`.
 - Temp files with predictable names (use `mktemp`); missing `trap` cleanup.
 - `curl | bash` installs; downloads without checksum verification; `curl` without `-f` (HTTP errors treated as success).
 - Secrets in command-line args (visible in `ps`), echoed to logs, or `set -x` tracing that prints them.

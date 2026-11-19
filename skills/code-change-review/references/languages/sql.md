@@ -23,7 +23,10 @@ Covers `.sql` files, migration files in any framework, and SQL embedded in other
 - Deadlock risk from inconsistent lock ordering across code paths.
 
 ## Migrations (high-risk; review carefully)
-- **Locking:** on large or hot tables, does the DDL take an exclusive lock? (Postgres: `ADD COLUMN ... DEFAULT` is fine on 11+; volatile defaults, type changes, `SET NOT NULL` and adding constraints without `NOT VALID` rewrite or scan. MySQL: check `ALGORITHM=INSTANT/INPLACE`, or whether gh-ost/pt-osc is needed.)
+- **Locking:** on large or hot tables, what lock does the DDL take, and for how long?
+  - Postgres: almost every `ALTER TABLE`, including `ADD COLUMN`, takes an `ACCESS EXCLUSIVE` lock. On 11+ a constant default avoids a table *rewrite*, but the lock is still taken. If a long-running transaction holds a conflicting lock, the DDL waits, and every later query queues behind it. Check for a `lock_timeout` (with retry) and for long transactions in that window.
+  - Postgres operations that rewrite or scan while locked: volatile defaults, most type changes, `SET NOT NULL`, and adding constraints without `NOT VALID`.
+  - MySQL: check `ALGORITHM=INSTANT/INPLACE` support for the specific change, or whether gh-ost/pt-osc is needed.
 - Indexes on big tables: `CREATE INDEX CONCURRENTLY` (Postgres; can't run inside a transaction) or online DDL.
 - **Mixed-version safety:** old code running against the new schema during deploy. Use expand/contract: add nullable column, then deploy code, then backfill, then enforce. Never rename or drop a column in the same deploy as the code change.
 - **Reversibility:** is there a down migration, and does it lose data?

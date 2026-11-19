@@ -38,23 +38,25 @@ python <skill-dir>/scripts/detect_languages.py --git HEAD     # uncommitted work
 git diff --name-only ... | python <skill-dir>/scripts/detect_languages.py   # any file list
 ```
 
-It prints the reference files to read and which changed files triggered each one. Without Python, use this table:
+It prints the reference files to read and which changed files triggered each one. Without Python, use this table, which matches the detector exactly. Filenames match case-insensitively.
 
 | Changed files | Read |
 |---|---|
-| `.py`, `.pyi`, `.ipynb` | `references/languages/python.md` |
-| `.js`, `.jsx`, `.mjs`, `.cjs`, `.ts`, `.tsx`, `.vue`, `.svelte` | `references/languages/javascript-typescript.md` |
-| `.go` | `references/languages/go.md` |
-| `.rs` | `references/languages/rust.md` |
-| `.java`, `.kt`, `.kts`, `.scala`, `.groovy`, `.gradle` | `references/languages/java-kotlin.md` |
-| `.cs`, `.fs`, `.vb`, `.csproj`, `.razor`, `.cshtml` | `references/languages/csharp-dotnet.md` |
-| `.c`, `.h`, `.cc`, `.cpp`, `.cxx`, `.hpp`, `.hh`, `.m`, `.mm` | `references/languages/c-cpp.md` |
-| `.rb`, `.erb`, `.rake`, `Gemfile` | `references/languages/ruby.md` |
-| `.php` | `references/languages/php.md` |
-| `.swift` | `references/languages/swift.md` |
-| `.sql`, migration files | `references/languages/sql.md` |
-| `.sh`, `.bash`, `.zsh`, `.ps1`, `.psm1`, `.bat`, `.cmd` | `references/languages/shell.md` |
-| `Dockerfile`, `.tf`, `.hcl`, k8s/Helm YAML, CI workflows | `references/languages/infrastructure.md` |
+| `.py`, `.pyi`, `.pyw`, `.ipynb`, `pyproject.toml`, `setup.py`, `setup.cfg`, `requirements.txt`, `Pipfile`, `Pipfile.lock`, `poetry.lock`, `uv.lock` | `references/languages/python.md` |
+| `.js`, `.jsx`, `.mjs`, `.cjs`, `.ts`, `.tsx`, `.mts`, `.cts`, `.vue`, `.svelte`, `.astro`, `package.json`, `package-lock.json`, `yarn.lock`, `pnpm-lock.yaml`, `bun.lockb`, `tsconfig.json` | `references/languages/javascript-typescript.md` |
+| `.go`, `go.mod`, `go.sum`, `go.work` | `references/languages/go.md` |
+| `.rs`, `Cargo.toml`, `Cargo.lock` | `references/languages/rust.md` |
+| `.java`, `.kt`, `.kts`, `.scala`, `.sc`, `.groovy`, `.gradle`, `pom.xml`, `build.gradle`, `settings.gradle`, `gradle.properties` | `references/languages/java-kotlin.md` |
+| `.cs`, `.fs`, `.fsx`, `.vb`, `.csproj`, `.fsproj`, `.vbproj`, `.sln`, `.razor`, `.cshtml`, `Directory.Build.props`, `Directory.Packages.props`, `NuGet.config`, `global.json` | `references/languages/csharp-dotnet.md` |
+| `.c`, `.h`, `.cc`, `.cpp`, `.cxx`, `.c++`, `.hpp`, `.hh`, `.hxx`, `.inl`, `.ipp`, `.m`, `.mm`, `CMakeLists.txt`, `Makefile`, `meson.build`, `conanfile.txt`, `vcpkg.json` | `references/languages/c-cpp.md` |
+| `.rb`, `.erb`, `.rake`, `.gemspec`, `.ru`, `Gemfile`, `Gemfile.lock`, `Rakefile`, `config.ru` | `references/languages/ruby.md` |
+| `.php`, `.phtml`, `composer.json`, `composer.lock` | `references/languages/php.md` |
+| `.swift`, `.pbxproj`, `Package.swift`, `Package.resolved`, `Podfile` | `references/languages/swift.md` |
+| `.sql`, `.psql`, `.pgsql`, `.ddl`, anything under a migrations directory | `references/languages/sql.md` |
+| `.sh`, `.bash`, `.zsh`, `.ksh`, `.fish`, `.ps1`, `.psm1`, `.psd1`, `.bat`, `.cmd` | `references/languages/shell.md` |
+| `.tf`, `.tfvars`, `.hcl`, `.dockerfile`, `Dockerfile`, `Dockerfile.*`, `Containerfile`, `.dockerignore`, `docker-compose*.yml`, `Chart.yaml`, `values.yaml`, `kustomization.yaml`, `.gitlab-ci.yml`, `azure-pipelines.yml`, `bitbucket-pipelines.yml`, `Jenkinsfile`, YAML under `.github/workflows/`, `k8s/`, `helm/`, `charts/`, `deploy/` | `references/languages/infrastructure.md` |
+
+Extensionless scripts route by their shebang (`python`, `node`, `ruby`, `php`, `sh`/`bash`/`zsh`, `pwsh`).
 
 One file can need two references. A Rails or Alembic migration needs its language file and `sql.md`, and the detector reports both. A language with no reference file still gets a full review. The general angles below cover it, and you should apply what you know about that language's common pitfalls. Embedded languages count too: SQL strings in Python, or shell commands built in Go, are a reason to load `sql.md` or `shell.md`.
 

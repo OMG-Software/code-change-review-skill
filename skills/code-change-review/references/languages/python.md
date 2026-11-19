@@ -26,7 +26,7 @@ Covers `.py`, `.pyi`, `.ipynb`. Use with `review-angles.md`; this file lists onl
 - Blocking calls (`requests`, `time.sleep`, sync DB drivers, heavy CPU) inside `async def`: they stall the event loop.
 - Coroutine never awaited (created and dropped, so it silently does nothing).
 - `asyncio.create_task` result not stored: the task can be garbage-collected mid-flight.
-- `asyncio.gather` without `return_exceptions` cancels or leaks siblings in ways the author may not expect.
+- `asyncio.gather` failure semantics: by default the first exception propagates to the caller, but sibling tasks are **not** cancelled and keep running (and writing) after the caller has handled the error. With `return_exceptions=True`, exceptions come back as results that must be checked. When failure should cancel the rest, prefer `asyncio.TaskGroup` (3.11+).
 - Threads and the GIL: CPU-bound work in threads doesn't parallelize; shared state still needs locks (check-then-act is not atomic).
 - `multiprocessing` with unpicklable objects or no `if __name__ == "__main__":` guard (breaks on Windows and macOS spawn).
 
