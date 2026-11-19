@@ -18,7 +18,7 @@ Covers `.py`, `.pyi`, `.ipynb`. Use with `review-angles.md`; this file lists onl
 
 ## Error handling and resources
 - Files, sockets and locks opened without `with`.
-- `raise NewError(...)` inside `except` without `from e` loses the cause (or use `from None` deliberately).
+- Exception translation: `raise NewError(...)` inside `except` keeps the original implicitly (`__context__`, shown as "During handling of the above exception…"), so a missing `from e` is a style point, not lost information. `from e` marks it as the deliberate cause. Flag real loss instead: `from None` hiding a cause the caller needs, re-raising after the `except` block with only `str(e)`, or logging `str(e)` without the traceback (use `logger.exception` or `exc_info=True`).
 - `try/finally` with `return` in `finally` swallows exceptions.
 - `assert` for runtime validation: stripped under `python -O`.
 

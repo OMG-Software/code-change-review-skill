@@ -7,7 +7,7 @@ the review loads the guidance it needs and nothing else.
 Usage:
   detect_languages.py --git main          # files changed since merge-base with main (incl. uncommitted + untracked)
   detect_languages.py --git HEAD          # uncommitted + untracked changes only
-  git diff --name-only A..B | detect_languages.py
+  git diff --name-only A..B | detect_languages.py   # git-quoted names are decoded; -z output also works
   detect_languages.py path/a.py path/b.go
   detect_languages.py --json ...          # machine-readable output
   detect_languages.py --check             # verify mapping, reference files and SKILL.md table agree
@@ -160,6 +160,41 @@ def _git(args: list[str], cwd: Path) -> list[str]:
     """Run git and return stripped output lines (for refs and paths git never quotes)."""
     out = subprocess.run(["git", *args], cwd=cwd, capture_output=True, text=True, check=True).stdout
     return [line.strip() for line in out.splitlines() if line.strip()]
+
+
+_C_ESCAPES = {ord(k): v for k, v in {"a": 7, "b": 8, "t": 9, "n": 10, "v": 11, "f": 12, "r": 13, '"': 34, "\\": 92}.items()}
+
+
+def _unquote_git_path(raw: bytes) -> bytes:
+    """Undo git's C-style quoting (`"caf\\303\\251.py"` -> `café.py`); return other names unchanged.
+
+    Git quotes a pathname that contains non-ASCII bytes, control characters, `"` or `\\`
+    unless core.quotePath is off or -z is used.
+    """
+    if len(raw) < 2 or raw[:1] != b'"' or raw[-1:] != b'"':
+        return raw
+    body, out, i = raw[1:-1], bytearray(), 0
+    while i < len(body):
+        c = body[i]
+        if c != 0x5C or i + 1 >= len(body):           # not a backslash escape
+            out.append(c)
+            i += 1
+        elif body[i + 1 : i + 4].isdigit() and len(body[i + 1 : i + 4]) == 3:
+            out.append(int(body[i + 1 : i + 4], 8) & 0xFF)  # \NNN octal byte
+            i += 4
+        else:
+            out.append(_C_ESCAPES.get(body[i + 1], body[i + 1]))
+            i += 2
+    return bytes(out)
+
+
+def read_stdin_paths(data: bytes) -> list[str]:
+    """Split piped pathnames: NUL-delimited (`git diff -z`) or one per line, git quoting undone."""
+    if b"\0" in data:
+        names = [p for p in data.split(b"\0") if p]
+    else:
+        names = [_unquote_git_path(line.strip()) for line in data.splitlines()]
+    return [n.decode("utf-8", "surrogateescape") for n in names if n]
 
 
 def _git_paths(args: list[str], cwd: Path) -> list[str]:
@@ -341,7 +376,7 @@ def main() -> int:
         if args.files:
             files = args.files
         elif not sys.stdin.isatty():
-            files = [line.strip() for line in sys.stdin if line.strip()]
+            files = read_stdin_paths(sys.stdin.buffer.read())
         else:
             ap.print_help()
             return 2
