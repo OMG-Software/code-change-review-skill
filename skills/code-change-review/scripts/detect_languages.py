@@ -200,13 +200,14 @@ def _unquote_git_path(raw: bytes) -> bytes:
 def read_stdin_paths(data: bytes) -> list[str]:
     """Split piped pathnames: NUL-delimited (`git diff -z`) or one per line, git quoting undone.
 
-    Only the line ending is removed. Spaces are legal at either end of a filename and git
-    never pads its output, so stripping them would point at a different file.
+    Only the line ending is removed, and only empty lines are skipped. Spaces are legal
+    anywhere in a filename (a name can even be all spaces) and git never pads its output,
+    so stripping them would point at a different file or drop one.
     """
     if b"\0" in data:
         names = [p for p in data.split(b"\0") if p]
     else:
-        names = [_unquote_git_path(line) for line in data.splitlines() if line.strip()]
+        names = [_unquote_git_path(line) for line in data.splitlines() if line]
     return [n.decode("utf-8", "surrogateescape") for n in names if n]
 
 
