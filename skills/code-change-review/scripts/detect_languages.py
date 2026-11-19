@@ -238,12 +238,22 @@ def files_from_git(ref: str, cwd: Path) -> tuple[list[str], Path, str]:
 
 
 def first_line_at(rev: str, root: Path) -> Callable[[str], str | None]:
-    """Return a reader for a file's first line at `rev` (for files deleted since then)."""
+    """Return a reader for a file's first line at `rev` (for files deleted since then).
+
+    Only the first 200 bytes are read from git; the process is then stopped, so a large
+    deleted binary is never buffered just to look for a shebang.
+    """
     def read(path: str) -> str | None:
-        r = subprocess.run(["git", "cat-file", "blob", f"{rev}:{path}"], cwd=root, capture_output=True)
-        if r.returncode != 0:
-            return None
-        return r.stdout[:200].split(b"\n", 1)[0].decode("utf-8", "replace")
+        proc = subprocess.Popen(["git", "cat-file", "blob", f"{rev}:{path}"], cwd=root,
+                                stdout=subprocess.PIPE, stderr=subprocess.DEVNULL)
+        try:
+            head = proc.stdout.read(200)               # empty if the blob doesn't exist
+        finally:
+            proc.stdout.close()
+            if proc.poll() is None:
+                proc.kill()
+            proc.wait()
+        return head.split(b"\n", 1)[0].decode("utf-8", "replace") if head else None
     return read
 
 
