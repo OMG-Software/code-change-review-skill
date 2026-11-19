@@ -52,11 +52,19 @@ It prints the reference files to read and which changed files triggered each one
 | `.rb`, `.erb`, `.rake`, `.gemspec`, `.ru`, `Gemfile`, `Gemfile.lock`, `Rakefile`, `config.ru` | `references/languages/ruby.md` |
 | `.php`, `.phtml`, `composer.json`, `composer.lock` | `references/languages/php.md` |
 | `.swift`, `.pbxproj`, `Package.swift`, `Package.resolved`, `Podfile` | `references/languages/swift.md` |
-| `.sql`, `.psql`, `.pgsql`, `.ddl`, anything under a migrations directory | `references/languages/sql.md` |
+| `.sql`, `.psql`, `.pgsql`, `.ddl`, and any file under `migration/`, `migrations/`, `migrate/`, `alembic/versions/`, `flyway/`, `liquibase/` | `references/languages/sql.md` |
 | `.sh`, `.bash`, `.zsh`, `.ksh`, `.fish`, `.ps1`, `.psm1`, `.psd1`, `.bat`, `.cmd` | `references/languages/shell.md` |
-| `.tf`, `.tfvars`, `.hcl`, `.dockerfile`, `Dockerfile`, `Dockerfile.*`, `Containerfile`, `.dockerignore`, `docker-compose*.yml`, `Chart.yaml`, `values.yaml`, `kustomization.yaml`, `.gitlab-ci.yml`, `azure-pipelines.yml`, `bitbucket-pipelines.yml`, `Jenkinsfile`, YAML under `.github/workflows/`, `k8s/`, `helm/`, `charts/`, `deploy/` | `references/languages/infrastructure.md` |
+| `.tf`, `.tfvars`, `.hcl`, `.dockerfile`, `Dockerfile`, `Dockerfile*`, `Containerfile`, `.dockerignore`, `compose*.yml`, `compose*.yaml`, `docker-compose*.yml`, `docker-compose*.yaml`, `Chart.yaml`, `values.yaml`, `kustomization.yaml`, `.gitlab-ci.yml`, `azure-pipelines.yml`, `bitbucket-pipelines.yml`, `Jenkinsfile`, any file under `.circleci/`, and YAML under `.github/workflows/`, `.github/actions/`, `k8s/`, `kubernetes/`, `helm/`, `charts/`, `manifests/`, `deploy/`, `deployment/`, `kustomize/`, `argocd/` | `references/languages/infrastructure.md` |
 
-Extensionless scripts route by their shebang (`python`, `node`, `ruby`, `php`, `sh`/`bash`/`zsh`, `pwsh`).
+A file with no extension routes by the interpreter on its shebang line (`#!/usr/bin/env deno`, `#!/usr/bin/python3`). Version suffixes are ignored.
+
+| Shebang interpreter | Read |
+|---|---|
+| `python` | `references/languages/python.md` |
+| `node`, `deno`, `bun`, `ts-node`, `tsx` | `references/languages/javascript-typescript.md` |
+| `ruby` | `references/languages/ruby.md` |
+| `php` | `references/languages/php.md` |
+| `sh`, `bash`, `zsh`, `ksh`, `dash`, `fish`, `pwsh` | `references/languages/shell.md` |
 
 One file can need two references. A Rails or Alembic migration needs its language file and `sql.md`, and the detector reports both. A language with no reference file still gets a full review. The general angles below cover it, and you should apply what you know about that language's common pitfalls. Embedded languages count too: SQL strings in Python, or shell commands built in Go, are a reason to load `sql.md` or `shell.md`.
 

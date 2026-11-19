@@ -18,6 +18,7 @@ Standard library only; works on Windows, macOS and Linux.
 from __future__ import annotations
 
 import argparse
+import fnmatch
 import json
 import re
 import subprocess
@@ -60,25 +61,50 @@ FILENAMES: dict[str, set[str]] = {
                        ".gitlab-ci.yml", "azure-pipelines.yml", "jenkinsfile", "bitbucket-pipelines.yml"},
 }
 
-# Path regexes (matched against the lowercase POSIX path) for files whose type
-# depends on location rather than name.
-PATH_PATTERNS: list[tuple[str, re.Pattern[str]]] = [
-    ("sql", re.compile(r"(^|/)(migrations?|migrate|db/migrate|alembic/versions|flyway|liquibase)/")),
-    ("infrastructure", re.compile(r"(^|/)\.github/(workflows|actions)/.+\.ya?ml$")),
-    ("infrastructure", re.compile(r"(^|/)\.circleci/")),
-    ("infrastructure", re.compile(r"(^|/)(k8s|kubernetes|helm|charts|manifests|deploy|deployment|kustomize|argocd)/.+\.ya?ml$")),
-    ("infrastructure", re.compile(r"(^|/)(docker-)?compose[\w.-]*\.ya?ml$")),
-    ("infrastructure", re.compile(r"(^|/)dockerfile[\w.-]*$")),
+# Location-based rules for files whose type depends on where they live. Each label is
+# the rule itself (not a description of a regex), and the SKILL.md table must list it
+# verbatim, so the fallback table and the detector can't drift apart:
+#   "dir/"  -> any file under a directory of that name (or that subpath), at any depth
+#   "glob*" -> a basename glob (fnmatch, lowercase)
+# (reference, labels, yaml_only) - yaml_only restricts the rule to .yml/.yaml files.
+PATH_RULES: list[tuple[str, tuple[str, ...], bool]] = [
+    ("sql", ("migration/", "migrations/", "migrate/", "alembic/versions/", "flyway/", "liquibase/"), False),
+    ("infrastructure", (".github/workflows/", ".github/actions/", "k8s/", "kubernetes/", "helm/", "charts/",
+                        "manifests/", "deploy/", "deployment/", "kustomize/", "argocd/"), True),
+    ("infrastructure", (".circleci/", "dockerfile*", "compose*.yml", "compose*.yaml",
+                        "docker-compose*.yml", "docker-compose*.yaml"), False),
 ]
 
-# Shebang interpreter -> reference, for extensionless scripts.
-SHEBANGS: list[tuple[str, re.Pattern[str]]] = [
-    ("python", re.compile(r"python")),
-    ("javascript-typescript", re.compile(r"\b(node|deno|bun|ts-node|tsx)\b")),
-    ("ruby", re.compile(r"\bruby\b")),
-    ("php", re.compile(r"\bphp\b")),
-    ("shell", re.compile(r"\b(ba|z|k|da|fi)?sh\b|\bpwsh\b")),
-]
+# Shebang interpreter (basename, version suffix stripped) -> reference, for extensionless scripts.
+SHEBANGS: dict[str, set[str]] = {
+    "python": {"python"},
+    "javascript-typescript": {"node", "deno", "bun", "ts-node", "tsx"},
+    "ruby": {"ruby"},
+    "php": {"php"},
+    "shell": {"sh", "bash", "zsh", "ksh", "dash", "fish", "pwsh"},
+}
+
+
+def _path_rule_matches(label: str, lower_path: str, name: str) -> bool:
+    if label.endswith("/"):
+        return f"/{label}" in f"/{lower_path}"
+    return fnmatch.fnmatchcase(name, label)
+
+
+def shebang_ref(first_line: str) -> str | None:
+    """'#!/usr/bin/env -S deno run' -> 'javascript-typescript'; '#!/usr/bin/python3.12' -> 'python'."""
+    if not first_line.startswith("#!"):
+        return None
+    words = first_line[2:].split()
+    if words and PurePosixPath(words[0]).name == "env":
+        words = [w for w in words[1:] if not w.startswith("-") and "=" not in w]
+    if not words:
+        return None
+    interpreter = re.sub(r"[\d.]+$", "", PurePosixPath(words[0]).name.lower())
+    for ref, names in SHEBANGS.items():
+        if interpreter in names:
+            return ref
+    return None
 
 # Files that carry no reviewable language-specific risk on their own.
 IGNORED_EXTENSIONS = {".md", ".txt", ".rst", ".png", ".jpg", ".jpeg", ".gif", ".svg", ".ico", ".lock", ".gitignore",
@@ -110,8 +136,9 @@ def classify(path: str, abs_path: Path | None = None) -> list[str]:
     for ref, exts in EXTENSIONS.items():
         if ext in exts:
             add(ref)
-    for ref, pattern in PATH_PATTERNS:
-        if pattern.search(lower):
+    is_yaml = ext in {".yml", ".yaml"}
+    for ref, labels, yaml_only in PATH_RULES:
+        if (is_yaml or not yaml_only) and any(_path_rule_matches(lb, lower, name) for lb in labels):
             add(ref)
     if not refs and not ext and abs_path is not None:
         add(_from_shebang(abs_path))
@@ -124,12 +151,7 @@ def _from_shebang(file: Path) -> str | None:
             first = fh.readline(200).decode("utf-8", "replace")
     except OSError:
         return None
-    if not first.startswith("#!"):
-        return None
-    for ref, pattern in SHEBANGS:
-        if pattern.search(first):
-            return ref
-    return None
+    return shebang_ref(first)
 
 
 def _git(args: list[str], cwd: Path) -> list[str]:
@@ -231,11 +253,12 @@ def parse_routing_table(skill_md: str) -> dict[str, set[str]]:
 def check() -> int:
     """Catch drift between this script, the reference files and the SKILL.md routing table.
 
-    The table is the no-Python fallback, so it must route every extension and filename
-    the detector knows, and must not point at references that don't exist.
+    The table is the no-Python fallback, so it must route every extension, filename,
+    path rule and shebang interpreter the detector knows, and must not point at
+    references that don't exist.
     """
     problems: list[str] = []
-    mapped = set(EXTENSIONS) | set(FILENAMES) | {ref for ref, _ in PATH_PATTERNS} | {ref for ref, _ in SHEBANGS}
+    mapped = set(EXTENSIONS) | set(FILENAMES) | {ref for ref, _, _ in PATH_RULES} | set(SHEBANGS)
     present = {p.stem for p in LANG_DIR.glob("*.md")}
     table = parse_routing_table((SKILL_DIR / "SKILL.md").read_text(encoding="utf-8"))
     tabled = set(table)
@@ -250,10 +273,15 @@ def check() -> int:
         problems.append(f"SKILL.md routing table points to a missing file: references/languages/{ref}.md")
     for ref in sorted(tabled - mapped):
         problems.append(f"SKILL.md routing table row not known to the detector: references/languages/{ref}.md")
+    path_labels: dict[str, set[str]] = {}
+    for ref, labels, _ in PATH_RULES:
+        path_labels.setdefault(ref, set()).update(labels)
     for ref in sorted(tabled & mapped):
-        missing = sorted((EXTENSIONS.get(ref, set()) | FILENAMES.get(ref, set())) - table[ref])
+        rules = (EXTENSIONS.get(ref, set()) | FILENAMES.get(ref, set())
+                 | path_labels.get(ref, set()) | SHEBANGS.get(ref, set()))
+        missing = sorted(rules - table[ref])
         if missing:
-            problems.append(f"SKILL.md row for {ref}.md is missing: {', '.join(missing)}")
+            problems.append(f"SKILL.md tables for {ref}.md are missing: {', '.join(missing)}")
 
     for p in problems:
         print(f"FAIL  {p}")
