@@ -8,9 +8,9 @@ Severity is a priority rank from `[P1]` (most severe) to `[P5]` (least severe), 
 
 | Label | Meaning | Examples |
 |---|---|---|
-| `[P1] CRITICAL` | Will cause serious harm in normal use, or is exploitable. Block the merge. | Auth bypass, SQL injection, data loss or corruption, crash on the main path, irreversible migration bug |
+| `[P1] CRITICAL` | Will cause serious harm in normal use, or is exploitable to cause serious harm. Block the merge. An exploit with limited impact is ranked by that impact, not raised to P1 because it is exploitable. | Auth bypass, SQL injection, data loss or corruption, crash on the main path, irreversible migration bug |
 | `[P2] MAJOR` | Wrong behaviour that users or operators will hit, or a serious risk under realistic conditions. Fix before merging. | Race causing duplicate charges, unhandled error on a common path, breaking API change, N+1 on a hot endpoint |
-| `[P3] MINOR (Defect)` | Wrong behaviour in edge cases or uncommon conditions, with limited impact. Should be fixed in this change, need not block. | Missing timeout, edge-case off-by-one, error swallowed on a rare path |
+| `[P3] MINOR (Defect)` | Wrong behaviour in edge cases or uncommon conditions, with limited impact. Fix in this change; need not block the merge. | Missing timeout, edge-case off-by-one, error swallowed on a rare path |
 | `[P4] MINOR (Quality)` | No wrong behaviour today, but a real maintainability or operability cost, or a clear improvement with small impact. Fix when convenient. | Missing test for new logic that works, wrong-altitude fix, misleading log message, small duplication, avoidable complexity |
 | `[P5] NIT` | Style or taste; no behavioural effect. Omit unless there are no real defects, or the user asked for a thorough pass. | Formatting the linter missed, naming, wording |
 
@@ -22,7 +22,7 @@ When torn between two labels, pick the less severe one (the higher number) and s
 
 Confidence is separate from severity. A finding is **Confirmed** (traced end to end or reproduced) or **Plausible** (credible path, not fully proven). State it only when Plausible, together with what would confirm it. A Plausible `[P1] CRITICAL` still belongs at the top.
 
-The label is meant to be machine-readable. It is always one of exactly these five strings, spelled and cased as shown, and always the first thing in a finding:
+The label is meant to be machine-readable. It is always one of exactly these five strings, spelled and cased as shown, and always the first thing on the finding's line, with no list marker, heading or other text before it (this includes the one-line items under **Also noted**):
 
 - `[P1] CRITICAL`
 - `[P2] MAJOR`
@@ -87,8 +87,12 @@ if amount > order.balance:
 <Each finding in the comment format above, most severe first, separated by a blank line or `---`.>
 
 ### Also noted
-- [P4] MINOR (Quality) <lower-severity items held back from the main list, one line each, each with its own full label>
-- <N [P5] NIT findings omitted>
+
+[P3] MINOR (Defect) <lower-severity item held back from the main list: claim and `file:line` on one line>
+
+[P4] MINOR (Quality) <another held-back item; one per line, most severe first, each starting with its own full label, blank line between them>
+
+<N [P5] NIT findings omitted>
 
 ### Not covered
 - <Files skimmed or skipped, checks you couldn't run, assumptions made>
