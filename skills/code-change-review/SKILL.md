@@ -1,6 +1,6 @@
 ---
 name: code-change-review
-description: Review a code change (local diff, staged changes, branch, commit range, or pull request) for correctness, security, performance, reliability, compatibility, altitude, duplication, simplicity and test quality, with language-specific checks loaded only for the languages the change touches, and report each finding as a comment tagged [CRITICAL], [MAJOR], [MINOR] or [NIT] with the issue, why it matters and a suggested fix. Use this whenever the user asks to review code or a pull request in any form — "review PR 123", "review PR #45", "review this PR https://github.com/org/repo/pull/123", "look at this PR <url>", "review my branch", "review this diff/commit" — or asks to check changes before merging or committing, "is this safe to ship?", "what did I break?", "look over my changes", or wants a second opinion on a change, even if they don't say the word "review".
+description: Review a code change (local diff, staged changes, branch, commit range, or pull request) for correctness, security, performance, reliability, compatibility, altitude, duplication, simplicity and test quality, with language-specific checks loaded only for the languages the change touches, and report each finding as a comment labelled [P1] CRITICAL, [P2] MAJOR, [P3] MINOR (Defect), [P4] MINOR (Quality) or [P5] NIT with the issue, why it matters and a suggested fix. Use this whenever the user asks to review code or a pull request in any form — "review PR 123", "review PR #45", "review this PR https://github.com/org/repo/pull/123", "look at this PR <url>", "review my branch", "review this diff/commit" — or asks to check changes before merging or committing, "is this safe to ship?", "what did I break?", "look over my changes", or wants a second opinion on a change, even if they don't say the word "review".
 ---
 
 # Code Change Review
@@ -124,14 +124,14 @@ For each candidate finding:
 Use `references/reporting.md` for the severity tags, the comment format and the output template. In short:
 
 - Lead with a one-line verdict: whether it is safe to merge, and the biggest issue if any.
-- **Every finding starts with its severity tag: `[CRITICAL]`, `[MAJOR]`, `[MINOR]` or `[NIT]`**, then a one-line claim and its `file:line`. The body explains, in this order, what the issue is, why it is a problem (the concrete failure scenario), and a suggested fix or improvement wherever you can offer one.
+- **Every finding starts with its severity label: `[P1] CRITICAL`, `[P2] MAJOR`, `[P3] MINOR (Defect)`, `[P4] MINOR (Quality)` or `[P5] NIT`**, where the `[Pn]` rank comes first and `[P1]` is the most severe, then a one-line claim and its `file:line`. The body explains, in this order, what the issue is, why it is a problem (the concrete failure scenario), and a suggested fix or improvement wherever you can offer one.
 - List findings with the most severe first. Default cap of about 10. Mention how many lower-severity items you left out, and list them if the user asks.
-- Keep `[NIT]`s out unless there are no real defects, or the user asked for a thorough pass.
+- Keep `[P5] NIT` findings out unless there are no real defects, or the user asked for a thorough pass.
 - End with what you did *not* cover (files skimmed, things you couldn't run). An honest scope note is part of the review.
 
-Use the same tag-first format for comments posted on a pull request, so a finding reads the same in the report and on the PR. Post to the PR only when the user asks you to; `references/reporting.md` shows how to post them as one review with inline comments.
+Use the same label-first format for comments posted on a pull request, so a finding reads the same in the report and on the PR. Post to the PR only when the user asks you to; `references/reporting.md` shows how to post them as one review with inline comments.
 
-If the host provides a structured findings tool, report through it in the same order instead of printing the list, and still start each finding's summary with its tag.
+If the host provides a structured findings tool, report through it in the same order instead of printing the list, and still start each finding's summary with its full label.
 
 ## Principles
 
