@@ -10,11 +10,13 @@ Severity is a priority rank from `[P1]` (most severe) to `[P5]` (least severe), 
 |---|---|---|
 | `[P1] CRITICAL` | Will cause serious harm in normal use, or is exploitable. Block the merge. | Auth bypass, SQL injection, data loss or corruption, crash on the main path, irreversible migration bug |
 | `[P2] MAJOR` | Wrong behaviour that users or operators will hit, or a serious risk under realistic conditions. Fix before merging. | Race causing duplicate charges, unhandled error on a common path, breaking API change, N+1 on a hot endpoint |
-| `[P3] MINOR (Defect)` | Wrong behaviour in edge cases or uncommon conditions, with limited impact. Should be fixed in this change, need not block. | Missing timeout, edge-case off-by-one, error swallowed on a rare path, missing test for new logic |
-| `[P4] MINOR (Quality)` | No wrong behaviour today, but a real maintainability or operability cost, or a clear improvement with small impact. Fix when convenient. | Wrong-altitude fix, misleading log message, small duplication, avoidable complexity |
+| `[P3] MINOR (Defect)` | Wrong behaviour in edge cases or uncommon conditions, with limited impact. Should be fixed in this change, need not block. | Missing timeout, edge-case off-by-one, error swallowed on a rare path |
+| `[P4] MINOR (Quality)` | No wrong behaviour today, but a real maintainability or operability cost, or a clear improvement with small impact. Fix when convenient. | Missing test for new logic that works, wrong-altitude fix, misleading log message, small duplication, avoidable complexity |
 | `[P5] NIT` | Style or taste; no behavioural effect. Omit unless there are no real defects, or the user asked for a thorough pass. | Formatting the linter missed, naming, wording |
 
 `[P1]` and `[P2]` block the merge; `[P3]` to `[P5]` do not.
+
+`(Defect)` versus `(Quality)` depends on whether the code behaves wrongly, not on what kind of work the fix is. A missing test is `[P4] MINOR (Quality)` on its own; if the untested code is actually broken, report the bug at its own rank and mention the missing test in the fix.
 
 When torn between two labels, pick the less severe one (the higher number) and say what would raise it ("[P3] MINOR (Defect), or [P2] MAJOR if this endpoint is public").
 
