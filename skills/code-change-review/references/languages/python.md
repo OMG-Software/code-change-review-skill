@@ -46,7 +46,7 @@ Covers `.py`, `.pyi`, `.ipynb`. Use with `review-angles.md`; this file lists onl
 - ORM N+1: Django missing `select_related`/`prefetch_related`; SQLAlchemy lazy loads in loops.
 - Loading whole files or querysets into memory when you could iterate or stream.
 - pandas: row-wise `apply`/`iterrows` where a vectorized op exists; chained indexing (`SettingWithCopyWarning`).
-- Regex compiled inside hot loops (minor). Catastrophic backtracking on user input (major).
+- Regex compiled inside hot loops (usually `[P4] MINOR (Quality)`). Catastrophic backtracking on user input (usually `[P2] MAJOR`).
 
 ## Typing and API
 - Type hints that lie (`Optional` missing, `Any` leaking through public APIs).
