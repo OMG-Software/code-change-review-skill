@@ -20,7 +20,7 @@ Severity is a priority rank from `[P1]` (most severe) to `[P5]` (least severe), 
 
 When torn between two labels, pick the less severe one (the higher number) and say what would raise it ("[P3] MINOR (Defect), or [P2] MAJOR if this endpoint is public").
 
-Confidence is separate from severity. A finding is **Confirmed** (traced end to end or reproduced) or **Plausible** (credible path, not fully proven). State it only when Plausible, together with what would confirm it. A Plausible `[P1] CRITICAL` still belongs at the top.
+Confidence is separate from severity. A finding is **Confirmed** (traced end to end or reproduced) or **Plausible** (credible path, but the deciding fact is out of reach, such as production config, another service or a runtime condition you can't reproduce). State it only when Plausible, together with what would confirm it. If you could check that yourself (read a file, search, run a test), do it before reporting: the finding is then Confirmed or dropped. A Plausible `[P1] CRITICAL` still belongs at the top. `references/verification.md` has the full rules.
 
 The label is meant to be machine-readable. It is always one of exactly these five strings, spelled and cased as shown, and always the first thing on the finding's line, with no list marker, heading or other text before it (this includes the one-line items under **Also noted**):
 
@@ -42,8 +42,8 @@ Use this for every finding, in reports and on PRs alike:
 
 **Issue:** <what is wrong, in 1-3 sentences, pointing at the code.>
 
-**Why it matters:** <how it fails: concrete input or state → wrong outcome, and who is affected.>
-<If Plausible: "Plausible: confirmed if <check>.">
+**Why it matters:** <how it fails: concrete input or state → wrong outcome, and who is affected. Cite the lines outside the hunk that the scenario depends on (the definition, the caller, the missing guard).>
+<If Plausible: "Plausible: confirmed if <a check you could not make from here>.">
 
 **Suggested fix:** <the specific change; a short snippet if clearer than prose.>
 ```
@@ -63,7 +63,7 @@ Example:
 
 **Issue:** `issue_refund` subtracts `amount` from `order.balance` without checking it against the remaining balance.
 
-**Why it matters:** two partial refunds of 60 on a 100 order both pass validation, leaving a balance of -20 and paying out 20 more than was charged.
+**Why it matters:** two partial refunds of 60 on a 100 order both pass validation (`RefundRequest.validate` at `billing/schemas.py:31` only checks `amount > 0`), leaving a balance of -20 and paying out 20 more than was charged.
 
 **Suggested fix:** reject refunds larger than the remaining balance inside the same transaction:
 

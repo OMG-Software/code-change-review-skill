@@ -95,7 +95,9 @@ One file can need two references. A Rails or Alembic migration needs its languag
 The diff shows what changed, not what it affects. Before judging anything:
 
 - **Read the surrounding code** of each hunk, not just the changed lines. Many bugs live in how new lines interact with old ones.
+- **Read definitions, not names.** Open the types, functions and config the changed code uses. What a field holds or a function does is in its definition, not in its name or in how other call sites use it.
 - **Find callers and dependents** of every changed function, type, schema, config key or endpoint (grep, LSP find-references). The blast radius is invisible from the diff.
+- **Read the decision records** the change touches: ADRs, design docs, comments next to the code. A documented trade-off is not a defect, unless it breaks a spec, requirement or security invariant.
 - **Learn the project's conventions:** linter and formatter configs, `CLAUDE.md`/`CONTRIBUTING.md`, and how nearby code handles errors, logging and tests. Judge consistency against this codebase, not against general taste.
 - **Search for existing helpers** before accepting new utility code. Re-implementing something the repo already has only shows up when you look outside the diff.
 
@@ -112,12 +114,13 @@ Apply the loaded language file's checks within these angles. They are the specif
 
 ### 5. Verify every finding before reporting it
 
-For each candidate finding:
+Most false positives rest on one fact the reviewer assumed instead of checking. **Read `references/verification.md` before reporting**: it has the full procedure and a table of false-positive patterns with the check that catches each. For each candidate finding:
 
 - **Write the failure scenario:** concrete input or state, then the wrong outcome. If you can't, it's probably not a bug.
-- **Re-read the code** to check that the issue isn't already handled: a guard upstream, a validator, a type that rules it out, a test that covers it.
-- **Run it** where that's cheap and safe (a unit test, a REPL snippet, the type checker or linter) and the finding is uncertain.
-- **Grade confidence:** *Confirmed* (traced or reproduced) or *Plausible* (credible path you couldn't fully prove). Drop anything weaker. If something is unclear but harmless to raise, ask it as a question rather than asserting a bug.
+- **List its load-bearing facts** (what a type is, what a callee does, who calls it with what, that something is absent, what the language or spec says) and **settle each one by reading or running something you can cite**. A name, an idiom or "the likely design" settles nothing. Before claiming something is missing or unused, search the whole repository.
+- **Argue against it.** Look for the guard, counterpart, caller, test, spec section or decision record that would make it wrong. Evidence against the finding (tests pass, it works in production) counts against it; don't explain it away.
+- **Grade confidence:** *Confirmed* (every load-bearing fact settled) or *Plausible* (the deciding fact is out of reach, such as production config or another service). If you could check the deciding fact with the tools you have, check it: it is not Plausible. Drop anything else, or ask it as a question that names the unsettled fact.
+- **Verify independently** when the host can start subagents: give each `[P1]`–`[P3]` finding to one that hasn't seen your reasoning, and ask it to disprove the finding.
 
 ### 6. Report
 
@@ -129,13 +132,14 @@ Use `references/reporting.md` for the severity tags, the comment format and the 
 - Keep `[P5] NIT` findings out unless there are no real defects, or the user asked for a thorough pass.
 - End with what you did *not* cover (files skimmed, things you couldn't run). An honest scope note is part of the review.
 
-Use the same label-first format for comments posted on a pull request, so a finding reads the same in the report and on the PR. Post to the PR only when the user asks you to; `references/reporting.md` shows how to post them as one review with inline comments.
+Use the same label-first format for comments posted on a pull request, so a finding reads the same in the report and on the PR. Post to the PR only when the user asks you to; `references/reporting.md` shows how to post them as one review with inline comments. When findings are posted with no human reviewing them first (a review bot or CI job), apply the stricter bar in `references/verification.md`.
 
 If the host provides a structured findings tool, report through it in the same order instead of printing the list, and still start each finding's summary with its full label.
 
 ## Principles
 
 - **Evidence over opinion.** Every finding cites code. "Consider X" without a reason is noise.
+- **Depth over breadth.** One finding traced to the end beats five inferred from the diff. If you haven't opened the code a finding depends on, you haven't verified it.
 - **Review the change, not the codebase.** Flag pre-existing problems only when the change makes them worse or depends on them, and label them as pre-existing.
 - **Respect the author's choices.** A different but equally valid approach is not a finding. Disagree only when you can name a concrete cost.
 - **Don't fix during review** unless asked. Suggest fixes; let the user decide whether to apply them.
