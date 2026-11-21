@@ -116,7 +116,7 @@ Language-agnostic. Pair it with the language files for the specific forms these 
 ### Simplicity and over-engineering
 - Abstractions with one implementation and no clear second coming.
 - Configurability or extension points nobody asked for.
-- Dead code, unused parameters, leftover debug code.
+- Dead code, unused parameters, leftover debug code. Search the whole repository and every build target (including registration tables, routes, reflection and macros) before calling code dead; a static analyser's "unused" alert is a lead, not proof.
 - The reverse: clever one-liners that should be boring and readable.
 
 ### Consistency
@@ -131,7 +131,7 @@ Language-agnostic. Pair it with the language files for the specific forms these 
 ## Tier 4: Is it verified?
 
 ### Tests
-- Does a test exercise the new or changed behaviour? Would it *fail* if the change were reverted?
+- Does a test exercise the new or changed behaviour? Would it *fail* if the change were reverted? Search the whole test tree (unit, integration, conformance) for the function, endpoint or scenario before reporting a test as missing.
 - Edge cases from tier 1 covered, not only the happy path.
 - Over-mocking: the test mocks the very thing it should be testing.
 - Flakiness sources: time, randomness, ordering, network, shared global state, sleeps.

@@ -10,6 +10,7 @@ skills/code-change-review/
 ├── references/
 │   ├── review-angles.md          # full language-agnostic checklist
 │   ├── reporting.md              # severity tags, comment format, report template, posting to a PR
+│   ├── verification.md           # proving each finding before reporting it; false-positive patterns
 │   └── languages/                # one file per language, loaded on demand
 │       ├── python.md
 │       ├── javascript-typescript.md
