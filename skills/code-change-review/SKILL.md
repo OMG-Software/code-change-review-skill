@@ -97,7 +97,7 @@ The diff shows what changed, not what it affects. Before judging anything:
 - **Read the surrounding code** of each hunk, not just the changed lines. Many bugs live in how new lines interact with old ones.
 - **Read definitions, not names.** Open the types, functions and config the changed code uses. What a field holds or a function does is in its definition, not in its name or in how other call sites use it.
 - **Find callers and dependents** of every changed function, type, schema, config key or endpoint (grep, LSP find-references). The blast radius is invisible from the diff.
-- **Read the decision records** the change touches: ADRs, design docs, comments next to the code. A documented trade-off is not a defect.
+- **Read the decision records** the change touches: ADRs, design docs, comments next to the code. A documented trade-off is not a defect, unless it breaks a spec, requirement or security invariant.
 - **Learn the project's conventions:** linter and formatter configs, `CLAUDE.md`/`CONTRIBUTING.md`, and how nearby code handles errors, logging and tests. Judge consistency against this codebase, not against general taste.
 - **Search for existing helpers** before accepting new utility code. Re-implementing something the repo already has only shows up when you look outside the diff.
 
