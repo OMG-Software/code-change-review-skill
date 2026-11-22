@@ -137,8 +137,8 @@ one to stand. Don't refute on a hunch, and don't confirm on one either.
 
 ### Acting on the verdict
 
-- **`refuted`:** read the citation. If it says what the verifier says it does, drop the finding. Don't argue your way back to it; finding a reason the refutation "doesn't really apply" is the same mistake as explaining away a passing test. Only if the citation is wrong (the line doesn't exist or plainly says something else) start one more fresh verifier with the same brief, and accept its verdict.
-- **`unsettled`:** settle the named fact yourself if your tools reach it, then grade as in step 4. If it is genuinely out of reach, the finding is at best Plausible and names that fact. Otherwise drop it.
+- **`refuted`:** read the citation and the fact the verifier says is false. Drop the finding when the citation shows that fact is false *and* the claim depends on that fact on the path the claim is about. Check only those two things. Don't argue your way back to the finding past them; finding a reason the refutation "doesn't really apply" is the same mistake as explaining away a passing test. The refutation fails either check if the citation is wrong (the line doesn't exist or plainly says something else), or if it is accurate but about a fact the claim doesn't rest on: a guard on a different entrypoint, or validation of a different property. Then don't keep the finding on your own say-so. Start one more fresh verifier with the same brief plus the disputed citation, ask whether that citation contradicts the claim, and accept its verdict.
+- **`unsettled`:** settle the named fact yourself if your tools reach it. If it shows the finding is wrong, drop it. If it supports the finding, start one more fresh verifier with the same brief plus where that fact is settled (`file:line`, doc section or command), and use its verdict in place of the first. If the fact is genuinely out of reach, the finding is at best Plausible and names that fact. Otherwise drop it.
 - **`holds`:** report it. If the verifier's failure scenario differs from yours, check yours again: the bug may be real but your explanation wrong, and the author should get the one that is right.
 
 ### Without subagents
@@ -149,7 +149,7 @@ If the host can't start subagents, do step 3 of the procedure as a separate pass
 
 When findings go straight onto a pull request (a review bot, a CI job), nobody filters them before the author sees them, so raise the bar:
 
-- Post only findings a fresh verifier returned `holds` for, or `unsettled` on a fact that is genuinely out of reach (the Plausible case below). If the host can't start subagents, say in the review body that the findings were not independently verified.
+- When the host can start subagents, post only findings whose last fresh-verifier verdict is `holds`, or `unsettled` on a fact that is genuinely out of reach (the Plausible case below). When it can't, post findings that survived the separate self-check pass (see "Without subagents"), and say in the review body that they were not independently verified.
 - Of those, post only Confirmed findings, plus Plausible `[P1]`/`[P2]` findings whose deciding fact is genuinely out of reach and named in the comment.
 - Leave out Plausible `[P3]`–`[P5]` findings. If you want, list them in the review body as questions.
 - Cite the lines that settle the load-bearing facts in **Why it matters**, so the author can check your reasoning in seconds instead of re-deriving it.
