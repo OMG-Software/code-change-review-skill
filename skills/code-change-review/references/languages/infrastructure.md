@@ -44,3 +44,8 @@ Covers `Dockerfile`/`Containerfile`, `docker-compose*.yml`, Terraform/OpenTofu (
 - YAML gotchas: unquoted `no`/`yes`/`on`/`off` parsed as booleans (YAML 1.1), leading zeros, `:` in unquoted strings, tab indentation.
 - Feature flags or config defaults changed: who else reads this config?
 - Environment-specific values (URLs, account IDs) hard-coded in shared config.
+
+## Declarative build files and Terraform JSON
+- **Bazel** (`BUILD`, `WORKSPACE`, `MODULE.bazel`, `.bzl`): new external repositories and download rules must be pinned and verified; check visibility changes, hermeticity, caching, remote execution, toolchain selection and reproducible dependency resolution. Generated outputs should not depend on local machine paths or secrets.
+- **Nix** (`.nix`, `flake.nix`): check input pins and lockfile changes, impurity (`builtins.getEnv`, network fetches without hashes), architecture-specific branches, secret interpolation and whether changed derivations trigger rebuilds or alter deployments.
+- **Terraform JSON** (`*.tf.json`, `*.tfvars.json`): apply the same state, replacement, permission, secret and provider-version checks as HCL; JSON syntax does not reduce rollout risk.

@@ -23,6 +23,7 @@ import fnmatch
 import json
 import os
 import re
+import shlex
 import subprocess
 import sys
 from pathlib import Path, PurePosixPath
@@ -45,7 +46,8 @@ EXTENSIONS: dict[str, set[str]] = {
     "swift": {".swift", ".pbxproj"},
     "sql": {".sql", ".psql", ".pgsql", ".ddl"},
     "shell": {".sh", ".bash", ".zsh", ".ksh", ".fish", ".ps1", ".psm1", ".psd1", ".bat", ".cmd"},
-    "infrastructure": {".tf", ".tfvars", ".hcl", ".dockerfile"},
+    "infrastructure": {".tf", ".tfvars", ".hcl", ".dockerfile", ".nix", ".bzl"},
+    "schemas": {".proto", ".graphql", ".gql", ".graphqls", ".prisma"},
 }
 
 # Exact (lowercase) basenames that identify a file type regardless of extension.
@@ -61,7 +63,8 @@ FILENAMES: dict[str, set[str]] = {
     "php": {"composer.json", "composer.lock"},
     "swift": {"package.swift", "package.resolved", "podfile"},
     "infrastructure": {"dockerfile", "containerfile", ".dockerignore", "chart.yaml", "values.yaml", "kustomization.yaml",
-                       ".gitlab-ci.yml", "azure-pipelines.yml", "jenkinsfile", "bitbucket-pipelines.yml"},
+                       ".gitlab-ci.yml", "azure-pipelines.yml", "jenkinsfile", "bitbucket-pipelines.yml",
+                       "build", "build.bazel", "workspace", "workspace.bazel", "module.bazel", "flake.nix"},
     "instructions": {"skill.md", "claude.md", "agents.md", "gemini.md", "copilot-instructions.md", ".cursorrules"},
 }
 
@@ -80,7 +83,7 @@ PATH_RULES: list[tuple[str, tuple[str, ...], frozenset[str] | None]] = [
     ("infrastructure", (".github/workflows/", ".github/actions/", "k8s/", "kubernetes/", "helm/", "charts/",
                         "manifests/", "deploy/", "deployment/", "kustomize/", "argocd/"), YAML),
     ("infrastructure", (".circleci/", "dockerfile*", "compose*.yml", "compose*.yaml",
-                        "docker-compose*.yml", "docker-compose*.yaml"), None),
+                        "docker-compose*.yml", "docker-compose*.yaml", "*.tf.json", "*.tfvars.json"), None),
     # Markdown a model follows as instructions. Not every .md: a README or docs/ page is prose.
     ("instructions", ("skills/", ".claude/", "prompts/", "agents/", ".cursor/rules/"), MARKDOWN),
 ]
@@ -101,13 +104,48 @@ def _path_rule_matches(label: str, lower_path: str, name: str) -> bool:
     return fnmatch.fnmatchcase(name, label)
 
 
+def _env_command(words: list[str]) -> list[str]:
+    """Return the command after env options/assignments, never option arguments.
+
+    A skipped -u/--unset or -C/--chdir argument may look like an interpreter.
+    Unknown options are not guessed: leave the file unmapped for manual review.
+    """
+    i = 0
+    no_value = {"-S", "--split-string", "-i", "--ignore-environment", "-0", "--null", "-v", "--debug"}
+    with_value = {"-u", "--unset", "-C", "--chdir"}
+    while i < len(words):
+        part = words[i]
+        if part == "--":
+            return words[i + 1:]
+        if part in no_value:
+            i += 1
+        elif part in with_value:
+            if i + 1 >= len(words):
+                return []
+            i += 2
+        elif part.startswith(("--unset=", "--chdir=")) or (part.startswith(("-u", "-C")) and len(part) > 2):
+            i += 1
+        elif part.startswith("-"):
+            return []
+        elif "=" in part:
+            if part.startswith("="):
+                return []
+            i += 1
+        else:
+            return words[i:]
+    return []
+
+
 def shebang_ref(first_line: str) -> str | None:
     """'#!/usr/bin/env -S deno run' -> 'javascript-typescript'; '#!/usr/bin/python3.12' -> 'python'."""
     if not first_line.startswith("#!"):
         return None
-    words = first_line[2:].split()
+    try:
+        words = shlex.split(first_line[2:].strip())
+    except ValueError:
+        return None
     if words and PurePosixPath(words[0]).name == "env":
-        words = [w for w in words[1:] if not w.startswith("-") and "=" not in w]
+        words = _env_command(words[1:])
     if not words:
         return None
     interpreter = re.sub(r"[\d.]+$", "", PurePosixPath(words[0]).name.lower())
@@ -333,8 +371,15 @@ def resolve_inputs(paths: list[str], first_base: Path, other_base: Path, repo_ro
         found: Path | None = None
         for base in (first_base, other_base):
             candidate = base / p_norm
+            # A changed symlink (including one through a symlinked directory) must
+            # not make a language scan read an arbitrary file outside the repo.
+            if candidate.is_symlink():
+                selected = candidate
+                break
             if candidate.is_file():
-                selected, found = candidate, candidate.resolve()
+                selected = candidate
+                target = candidate.resolve()
+                found = target if target.is_relative_to(root) else None
                 break
         try:
             rel = _without_final_symlink(selected).relative_to(root).as_posix()

@@ -38,6 +38,23 @@ skills/code-change-review/
 2. `scripts/detect_languages.py --git main` maps the changed files to reference files by extension, filename, path (migrations, `.github/workflows`, `k8s/`) and shebang. Without Python, the same mapping is a table in `SKILL.md`.
 3. Only the matching `references/languages/*.md` files are read. Languages with no reference file still get the general review.
 
+## Safety and review accuracy
+
+The skill treats PR descriptions, source files, comments, repository instructions and tool output as **untrusted data**, not instructions for the reviewing agent. It defaults to read-only inspection and requires explicit authorization or an approved isolated sandbox to execute project-controlled tests and build tools.
+
+For PR reviews, the agent pins both head and base commit SHAs, checks change-set completeness, and rechecks those SHAs before posting findings. A review of a moving PR revision must be restarted or its findings revalidated.
+
+Review modes: **Quick** (self-check), **Standard** (independent verification for major or uncertain findings), and **Deep** (all reported findings independently verified when subagents are available). Unattended publication uses Deep. The report must disclose coverage and verification limits.
+
+## Validation
+
+```bash
+python skills/code-change-review/scripts/detect_languages.py --check
+python -m unittest discover -s tests -v
+```
+
+GitHub Actions runs these checks on pushes and pull requests. `evals/` documents a small, expandable manual benchmark corpus and scoring procedure; its cases are **not** yet an automatic demonstration of review-model precision or recall.
+
 ## Installing
 
 - **Claude Code (personal):** copy or symlink `skills/code-change-review` to `~/.claude/skills/code-change-review`.
@@ -49,4 +66,4 @@ skills/code-change-review/
 1. Create `skills/code-change-review/references/languages/<name>.md`, using an existing file as the template. List only language-specific traps and keep generic advice in `review-angles.md`.
 2. Add its extensions and filenames to `EXTENSIONS` / `FILENAMES` in `scripts/detect_languages.py`.
 3. Add a row to the routing table in `SKILL.md`.
-4. Run `python skills/code-change-review/scripts/detect_languages.py --check`. It fails if the script, the reference files and the SKILL.md table disagree.
+4. Run `python skills/code-change-review/scripts/detect_languages.py --check` and `python -m unittest discover -s tests -v`. They fail if the mapping disagrees with the skill table or changes break detector behavior.
