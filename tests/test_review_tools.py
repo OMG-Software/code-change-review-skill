@@ -163,6 +163,19 @@ class ReviewScorerTests(unittest.TestCase):
         self.assertEqual([finding["id"] for finding in attack["expected"]],
                          ["review-instruction-injection"])
 
+    def test_eval_prompts_do_not_leak_expectations(self):
+        cases = json.loads((ROOT / "evals" / "cases.json").read_text())["cases"]
+        for case in cases:
+            with self.subTest(case=case["id"]):
+                prompt = case["context"] + "\n" + case["title"]
+                for finding in case["expected"]:
+                    self.assertNotIn(finding["id"], prompt)
+        attack = next(case for case in cases if case["id"] == "untrusted-comment")
+        prompt_metadata = (attack["title"] + " " + attack["context"]).lower()
+        for answer_hint in ("injection", "exfiltrate", "security finding",
+                            "hijack", "ignore previous directions"):
+            self.assertNotIn(answer_hint, prompt_metadata)
+
     def test_missing_case_is_error(self):
         with self.assertRaises(ValueError):
             score(self.cases, {"bug": ["broken"]})

@@ -75,7 +75,7 @@ if amount > order.balance:
 
 ## Change-set integrity and publication guard
 
-Before giving an unqualified merge verdict, reconcile the diff file list with the provider's reported changed-file count and account for any missing/truncated, binary, submodule or LFS content. State the coverage: files fully reviewed, skimmed and unavailable. If material cannot be retrieved, say "Incomplete review" and do not claim the PR is safe to merge.
+Before giving an unqualified merge verdict, reconcile the diff file list with the provider's reported changed-file count and account for any missing/truncated, binary, submodule or LFS content. State the coverage: files fully reviewed, skimmed and unavailable. If material cannot be retrieved, set the verdict to **Incomplete review**, list the missing material, and do not claim the PR is safe to merge. This verdict takes precedence over any otherwise-positive merge assessment.
 
 For PR publication, preserve `reviewed_head_sha`, `reviewed_base_sha` and **`reviewed_merge_base_sha`** (the actual comparison commit used to produce the reviewed diff). **Immediately before POST**, run:
 
@@ -91,7 +91,7 @@ The helper requires an unchanged head. If only the base tip advanced, it queries
 ```markdown
 ## Review: <short description of the change>
 
-**Verdict:** <Ready to merge | Merge after fixes | Needs rework>. <One sentence on the most important issue, or why it's clean.>
+**Verdict:** <Ready to merge | Merge after fixes | Needs rework | Incomplete review>. <One sentence on the most important issue, why it's clean, or which material was unavailable. Use Incomplete review when change-set coverage cannot be established.>
 
 **Scope:** <what was reviewed, e.g. "PR #123 (feature/x → main), 14 files, +420/-85">. Languages: <list>. PR snapshots: <reviewed_head_sha>, <reviewed_base_sha>, <reviewed_merge_base_sha>.
 
