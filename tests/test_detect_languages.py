@@ -28,6 +28,11 @@ class LanguageDetectionTests(unittest.TestCase):
             "#!/usr/bin/env -S --unset HOME --chdir /tmp python3.12 -u": "python",
             "#!/usr/bin/env --unset=HOME -C/tmp node": "javascript-typescript",
             "#!/usr/bin/env -i FOO=bar deno run": "javascript-typescript",
+            "#!/usr/bin/env -- FOO=bar python3": "python",
+            "#!/usr/bin/env -- FOO=bar BAR=baz python3 -u": "python",
+            "#!/usr/bin/env -- FOO=bar node": "javascript-typescript",
+            "#!/usr/bin/env -- =invalid python3": None,
+            "#!/usr/bin/env - python3": "python",
             "#!/usr/bin/env -S 'python3 -u'": "python",
             "#!/usr/bin/env --split-string=python3 -u": "python",
             "#!/usr/bin/env --split-string='python3 -u'": "python",
@@ -53,6 +58,12 @@ class LanguageDetectionTests(unittest.TestCase):
             "infra/main.tf.json": ["infrastructure"],
             "infra/prod.tfvars.json": ["infrastructure"],
             "BUILD.bazel": ["infrastructure"],
+            "BUILD": ["infrastructure"],
+            "WORKSPACE": ["infrastructure"],
+            "build": [],
+            "workspace": [],
+            "docs/build": [],
+            "scripts/workspace": [],
             "tools/rules.bzl": ["infrastructure"],
             "flake.nix": ["infrastructure"],
             "migrations/001.py": ["python", "sql"],
@@ -72,6 +83,21 @@ class LanguageDetectionTests(unittest.TestCase):
                          ["file with spaces.py", "a\nb.go"])
 
     @unittest.skipIf(os.name == "nt", "symlink creation may require elevated privileges")
+    def test_internal_symlink_preserves_shebang_classification(self):
+        with tempfile.TemporaryDirectory() as temp:
+            repo = Path(temp)
+            real = repo / "tool.py"
+            real.write_text("#!/usr/bin/env python3\nprint('ok')\n")
+            (repo / "tool").symlink_to(real)
+            entries = dl.resolve_inputs(["tool"], repo, repo, repo)
+            self.assertEqual(entries, [("tool", real.resolve())])
+            result = dl.detect(entries)
+            self.assertEqual(
+                [x["file"] for x in result["references"]],
+                ["references/languages/python.md"],
+            )
+
+    @unittest.skipIf(os.name == "nt", "symlink creation may require elevated privileges")
     def test_symlinks_do_not_read_external_targets(self):
         with tempfile.TemporaryDirectory() as temp:
             base = Path(temp)
@@ -82,6 +108,15 @@ class LanguageDetectionTests(unittest.TestCase):
             (repo / "script").symlink_to(outside)
             entries = dl.resolve_inputs(["script"], repo, repo, repo)
             self.assertEqual(entries, [("script", None)])
+            self.assertEqual(dl.detect(entries)["references"], [])
+
+    @unittest.skipIf(os.name == "nt", "symlink creation may require elevated privileges")
+    def test_broken_symlinks_are_not_dereferenced(self):
+        with tempfile.TemporaryDirectory() as temp:
+            repo = Path(temp)
+            (repo / "tool").symlink_to("missing.py")
+            entries = dl.resolve_inputs(["tool"], repo, repo, repo)
+            self.assertEqual(entries, [("tool", None)])
             self.assertEqual(dl.detect(entries)["references"], [])
 
 

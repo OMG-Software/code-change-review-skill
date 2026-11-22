@@ -64,8 +64,14 @@ FILENAMES: dict[str, set[str]] = {
     "swift": {"package.swift", "package.resolved", "podfile"},
     "infrastructure": {"dockerfile", "containerfile", ".dockerignore", "chart.yaml", "values.yaml", "kustomization.yaml",
                        ".gitlab-ci.yml", "azure-pipelines.yml", "jenkinsfile", "bitbucket-pipelines.yml",
-                       "build", "build.bazel", "workspace", "workspace.bazel", "module.bazel", "flake.nix"},
+                       "build.bazel", "workspace.bazel", "module.bazel", "flake.nix"},
     "instructions": {"skill.md", "claude.md", "agents.md", "gemini.md", "copilot-instructions.md", ".cursorrules"},
+}
+
+# Bazel recognizes uppercase BUILD / WORKSPACE (and their .bazel variants).
+# Lowercase "build" or "workspace" is commonly an unrelated executable/file.
+CASE_SENSITIVE_FILENAMES: dict[str, set[str]] = {
+    "infrastructure": {"BUILD", "WORKSPACE"},
 }
 
 YAML = frozenset({".yml", ".yaml"})
@@ -111,12 +117,17 @@ def _env_command(words: list[str]) -> list[str]:
     Unknown options are not guessed: leave the file unmapped for manual review.
     """
     i = 0
-    no_value = {"-i", "--ignore-environment", "-0", "--null", "-v", "--debug"}
+    no_value = {"-", "-i", "--ignore-environment", "-0", "--null", "-v", "--debug"}
     with_value = {"-u", "--unset", "-C", "--chdir"}
     while i < len(words):
         part = words[i]
         if part == "--":
-            return words[i + 1:]
+            # Option parsing ends here, but env still consumes NAME=VALUE
+            # assignments before it executes the first command operand.
+            rest = words[i + 1:]
+            while rest and "=" in rest[0] and not rest[0].startswith("="):
+                rest = rest[1:]
+            return rest
         if (part in {"-S", "--split-string"}
                 or part.startswith(("--split-string=", "-S"))
                 or re.fullmatch(r"-[iv0]+S", part)):
@@ -212,6 +223,9 @@ def classify(path: str, abs_path: Path | None = None,
 
     for ref, names in FILENAMES.items():
         if name in names:
+            add(ref)
+    for ref, names in CASE_SENSITIVE_FILENAMES.items():
+        if posix.name in names:
             add(ref)
     for ref, exts in EXTENSIONS.items():
         if ext in exts:
@@ -396,6 +410,14 @@ def resolve_inputs(paths: list[str], first_base: Path, other_base: Path, repo_ro
             # not make a language scan read an arbitrary file outside the repo.
             if candidate.is_symlink():
                 selected = candidate
+                try:
+                    target = candidate.resolve(strict=True)
+                    # Only read actual files within this repository, but keep
+                    # routing safe in-repo links (e.g. tool -> scripts/tool.py).
+                    if target.is_relative_to(root) and target.is_file():
+                        found = target
+                except (OSError, RuntimeError):
+                    pass  # dangling, inaccessible or cyclic symlink
                 break
             if candidate.is_file():
                 selected = candidate
@@ -469,7 +491,8 @@ def check() -> int:
     references that don't exist.
     """
     problems: list[str] = []
-    mapped = set(EXTENSIONS) | set(FILENAMES) | {ref for ref, _, _ in PATH_RULES} | set(SHEBANGS)
+    mapped = (set(EXTENSIONS) | set(FILENAMES) | set(CASE_SENSITIVE_FILENAMES)
+              | {ref for ref, _, _ in PATH_RULES} | set(SHEBANGS))
     present = {p.stem for p in LANG_DIR.glob("*.md")}
     table = parse_routing_table((SKILL_DIR / "SKILL.md").read_text(encoding="utf-8"))
     tabled = set(table)
@@ -489,6 +512,7 @@ def check() -> int:
         path_labels.setdefault(ref, set()).update(labels)
     for ref in sorted(tabled & mapped):
         rules = (EXTENSIONS.get(ref, set()) | FILENAMES.get(ref, set())
+                 | {name.lower() for name in CASE_SENSITIVE_FILENAMES.get(ref, set())}
                  | path_labels.get(ref, set()) | SHEBANGS.get(ref, set()))
         missing = sorted(rules - table[ref])
         if missing:
