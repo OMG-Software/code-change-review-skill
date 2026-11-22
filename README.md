@@ -28,8 +28,8 @@ skills/code-change-review/
 │       ├── infrastructure.md     # Docker, Terraform, Kubernetes/Helm, CI workflows
 │       └── instructions.md       # skills, agent prompts, CLAUDE.md: Markdown a model follows
 ├── scripts/
-│   └── detect_languages.py       # changed files -> reference files to load
-└── ...                            # see tests/ and evals/ at repository root
+│   ├── detect_languages.py       # changed files -> reference files to load
+│   └── check_pr_revision.py      # fail closed if a reviewed PR head/base has moved
 ```
 
 ## How language loading works
