@@ -33,10 +33,12 @@ class RevisionGuardTests(unittest.TestCase):
         return subprocess.CompletedProcess(args=["gh"], returncode=0, stdout=stdout)
 
     def _call_main(self, *, first=None, merge_base=None, final=None,
-                   error=None, strict=False):
+                   error=None, strict=False, reviewed_head=None,
+                   reviewed_base=None, reviewed_merge_base=None):
         args = ["check_pr_revision.py", "--repo", "example/repo", "--pr", "7",
-                "--reviewed-head", self.HEAD, "--reviewed-base", self.BASE,
-                "--reviewed-merge-base", self.MERGE_BASE]
+                "--reviewed-head", reviewed_head or self.HEAD,
+                "--reviewed-base", reviewed_base or self.BASE,
+                "--reviewed-merge-base", reviewed_merge_base or self.MERGE_BASE]
         if strict:
             args.append("--strict-base")
         if first is None:
@@ -66,6 +68,32 @@ class RevisionGuardTests(unittest.TestCase):
         self.assertFalse(check_snapshot(advanced, *args))
         self.assertFalse(check_snapshot(advanced, *args, "e" * 40))
         self.assertFalse(check_snapshot(self._snapshot(head="f" * 40), *args))
+        self.assertTrue(check_snapshot(same, *(value.upper() for value in args)))
+        self.assertTrue(check_snapshot(advanced, *(value.upper() for value in args),
+                                       self.MERGE_BASE.upper()))
+        self.assertTrue(check_snapshot(
+            {k: v.upper() for k, v in same.items()}, *args
+        ))
+        self.assertFalse(check_snapshot({}, *args))
+
+    def test_uppercase_reviewed_shas_are_accepted(self):
+        code, calls = self._call_main(
+            reviewed_head=self.HEAD.upper(), reviewed_base=self.BASE.upper(),
+            reviewed_merge_base=self.MERGE_BASE.upper(),
+        )
+        self.assertEqual(code, 0)
+        self.assertEqual(len(calls), 1)
+
+    def test_uppercase_merge_base_is_compared_by_value(self):
+        code, calls = self._call_main(
+            first=self._snapshot(base=self.NEW_BASE),
+            merge_base=self.MERGE_BASE.upper(),
+            reviewed_head=self.HEAD.upper(), reviewed_base=self.BASE.upper(),
+            reviewed_merge_base=self.MERGE_BASE.upper(),
+        )
+        self.assertEqual(code, 0)
+        self.assertEqual(len(calls), 3)
+        self.assertIn(self.HEAD, calls[1].args[0][-3])
 
     def test_unmoved_pr_needs_only_one_request(self):
         code, calls = self._call_main()
@@ -112,6 +140,21 @@ class RevisionGuardTests(unittest.TestCase):
     def test_timeout_fails_closed(self):
         code, _ = self._call_main(error=subprocess.TimeoutExpired(["gh"], 60))
         self.assertEqual(code, 2)
+
+    def test_gh_stderr_is_included_in_failure_diagnostics(self):
+        args = ["check_pr_revision.py", "--repo", "example/repo", "--pr", "7",
+                "--reviewed-head", self.HEAD, "--reviewed-base", self.BASE,
+                "--reviewed-merge-base", self.MERGE_BASE]
+        error = subprocess.CalledProcessError(
+            1, ["gh", "pr", "view"], stderr="HTTP 403: Resource not accessible"
+        )
+        with patch.object(sys, "argv", args), patch.object(
+            check_pr_revision.subprocess, "run", side_effect=error
+        ), redirect_stdout(io.StringIO()), redirect_stderr(io.StringIO()) as stderr:
+            code = check_pr_revision.main()
+        self.assertEqual(code, 2)
+        self.assertIn("HTTP 403", stderr.getvalue())
+        self.assertIn("do not publish", stderr.getvalue())
 
     def test_compare_api_failure_fails_closed(self):
         first = self._snapshot(base=self.NEW_BASE)

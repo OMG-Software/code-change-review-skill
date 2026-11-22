@@ -10,6 +10,7 @@ import subprocess
 import sys
 import tempfile
 import unittest
+from unittest.mock import patch
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "skills" / "code-change-review" / "scripts"))
@@ -139,27 +140,40 @@ class LanguageDetectionTests(unittest.TestCase):
 class GitSnapshotTests(unittest.TestCase):
     def test_pinned_head_excludes_worktree_and_untracked_files(self):
         with tempfile.TemporaryDirectory() as temp:
-            repo = Path(temp)
-            git(repo, "init", "-q")
-            git(repo, "config", "user.name", "Test")
-            git(repo, "config", "user.email", "test@example.invalid")
-            (repo / "original.py").write_text("x = 1\n")
-            git(repo, "add", ".")
-            git(repo, "commit", "-qm", "base")
-            base = git(repo, "rev-parse", "HEAD")
-            (repo / "original.py").write_text("x = 2\n")
-            (repo / "thing.proto").write_text('syntax = "proto3";\n')
-            git(repo, "add", ".")
-            git(repo, "commit", "-qm", "head")
-            head = git(repo, "rev-parse", "HEAD")
-            (repo / "scratch.go").write_text("package scratch\n")
-            (repo / "original.py").write_text("x = 3\n")
-            changed, root, merge_base, head_sha = dl.files_from_git(base, repo, head)
-            self.assertEqual(changed, ["original.py", "thing.proto"])
-            self.assertEqual((root, merge_base, head_sha), (repo, base, head))
-            working, _, _, no_head = dl.files_from_git("HEAD", repo)
-            self.assertEqual(working, ["original.py", "scratch.go"])
-            self.assertIsNone(no_head)
+            root = Path(temp)
+            repo = root / "repo"
+            repo.mkdir()
+            template = root / "empty-git-template"
+            template.mkdir()
+            # Do not inherit global/system Git hooks, templates or config;
+            # the detector invokes git itself, so isolate that process too.
+            with patch.dict(os.environ, {
+                "GIT_CONFIG_NOSYSTEM": "1",
+                "GIT_CONFIG_GLOBAL": os.devnull,
+                "GIT_CONFIG_COUNT": "0",
+                "GIT_CONFIG_PARAMETERS": "",
+                "GIT_TEMPLATE_DIR": str(template),
+            }):
+                git(repo, "init", "-q")
+                git(repo, "config", "user.name", "Test")
+                git(repo, "config", "user.email", "test@example.invalid")
+                (repo / "original.py").write_text("x = 1\n")
+                git(repo, "add", ".")
+                git(repo, "commit", "-qm", "base")
+                base = git(repo, "rev-parse", "HEAD")
+                (repo / "original.py").write_text("x = 2\n")
+                (repo / "thing.proto").write_text('syntax = "proto3";\n')
+                git(repo, "add", ".")
+                git(repo, "commit", "-qm", "head")
+                head = git(repo, "rev-parse", "HEAD")
+                (repo / "scratch.go").write_text("package scratch\n")
+                (repo / "original.py").write_text("x = 3\n")
+                changed, actual_root, merge_base, head_sha = dl.files_from_git(base, repo, head)
+                self.assertEqual(changed, ["original.py", "thing.proto"])
+                self.assertEqual((actual_root, merge_base, head_sha), (repo, base, head))
+                working, _, _, no_head = dl.files_from_git("HEAD", repo)
+                self.assertEqual(working, ["original.py", "scratch.go"])
+                self.assertIsNone(no_head)
 
 
 if __name__ == "__main__":

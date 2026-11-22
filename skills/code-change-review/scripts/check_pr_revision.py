@@ -16,11 +16,16 @@ GH_TIMEOUT_SECONDS = 60
 def check_snapshot(current: dict, reviewed_head: str, reviewed_base: str,
                    reviewed_merge_base: str, current_merge_base: str | None = None) -> bool:
     """Permit base advances only if the original diff's merge-base is unchanged."""
-    if current.get("headRefOid") != reviewed_head:
+    head = current.get("headRefOid")
+    base = current.get("baseRefOid")
+    if not isinstance(head, str) or not isinstance(base, str):
         return False
-    if current.get("baseRefOid") == reviewed_base:
+    if head.lower() != reviewed_head.lower():
+        return False
+    if base.lower() == reviewed_base.lower():
         return True
-    return current_merge_base is not None and current_merge_base == reviewed_merge_base
+    return (isinstance(current_merge_base, str)
+            and current_merge_base.lower() == reviewed_merge_base.lower())
 
 
 def _gh(*args: str) -> str:
@@ -40,6 +45,7 @@ def _pr_revision(repo: str, pr: int) -> dict:
         value = data.get(field)
         if not isinstance(value, str) or not SHA.fullmatch(value):
             raise ValueError(f"Missing or invalid {field} in PR revision")
+        data[field] = value.lower()
     return data
 
 
@@ -54,7 +60,7 @@ def _merge_base(repo: str, base: str, head: str) -> str:
                 "--jq", ".merge_base_commit.sha").strip()
     if not SHA.fullmatch(value):
         raise ValueError("GitHub did not return a valid merge-base SHA")
-    return value
+    return value.lower()
 
 
 def main() -> int:
@@ -73,6 +79,10 @@ def main() -> int:
     if any(not SHA.fullmatch(value) for value in
            (args.reviewed_head, args.reviewed_base, args.reviewed_merge_base)):
         parser.error("reviewed head, base and merge-base must be full commit SHAs")
+    # Git object IDs are hexadecimal values: case is not part of their identity.
+    args.reviewed_head = args.reviewed_head.lower()
+    args.reviewed_base = args.reviewed_base.lower()
+    args.reviewed_merge_base = args.reviewed_merge_base.lower()
 
     try:
         current = _pr_revision(args.repo, args.pr)
@@ -99,7 +109,14 @@ def main() -> int:
                 return 3
     except (OSError, subprocess.CalledProcessError, subprocess.TimeoutExpired,
             ValueError) as exc:
-        print(f"Cannot verify PR {args.repo}#{args.pr}: {exc}. Check GitHub CLI "
+        # capture_output=True means CalledProcessError has GitHub CLI's stderr.
+        # Include a bounded, escaped excerpt so the operator can distinguish
+        # auth failures, missing commits and transient API errors.
+        detail = ""
+        if isinstance(exc, subprocess.CalledProcessError) and isinstance(exc.stderr, str):
+            if exc.stderr.strip():
+                detail = f" GitHub CLI stderr: {exc.stderr.strip()[:400]!r}."
+        print(f"Cannot verify PR {args.repo}#{args.pr}: {exc}.{detail} Check GitHub CLI "
               "authentication, repository permissions and commit availability; "
               "do not publish.", file=sys.stderr)
         return 2
