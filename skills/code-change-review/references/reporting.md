@@ -134,7 +134,8 @@ Post only when requested by the user or enabled in an explicitly authorized revi
    }
    ```
 
-3. **Immediately before POST**, run the revision guard described above using the recorded head, base, and merge-base. Require an unchanged reviewed head and comparison basis (or unchanged base tip in `--strict-base` mode). Abort and re-review if it fails. Do not edit the payload or perform additional file inspection between this check and publishing.\n4. Submit it: `gh api repos/<owner>/<repo>/pulls/<n>/reviews --method POST --input review.json`.
+3. **Immediately before POST**, run the revision guard described above using the recorded head, base, and merge-base. Require an unchanged reviewed head and comparison basis (or unchanged base tip in `--strict-base` mode). Abort and re-review if it fails. Do not edit the payload or perform additional file inspection between this check and publishing.
+4. Submit it: `gh api repos/<owner>/<repo>/pulls/<n>/reviews --method POST --input review.json`.
 
 - `line` must be on a line in the PR's diff (`RIGHT` for the new version, `LEFT` for deleted lines). A finding about code outside the diff goes in the review `body` in the same tag-first format.
 - Use `"event": "COMMENT"` unless the user asks you to approve or request changes.

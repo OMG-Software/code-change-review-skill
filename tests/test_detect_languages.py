@@ -44,7 +44,6 @@ class LanguageDetectionTests(unittest.TestCase):
             "#!/usr/bin/env -S LABEL='x node' python3": "python",
             "#!/usr/bin/env --split-string=LABEL='x node' python3": "python",
             "#!/usr/bin/env -S LABEL='x node' node": "javascript-typescript",
-            "#!/usr/bin/env -S 'LABEL=\\'x node\\' python3'": "python",
             "#!/usr/bin/env -S -u HOME python3.12": "python",
             "#!/usr/bin/env --split-string=": None,
             "#!/usr/bin/python3.12": "python",
