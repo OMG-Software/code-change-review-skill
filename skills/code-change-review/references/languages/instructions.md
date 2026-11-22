@@ -25,7 +25,7 @@ These files are programs. The interpreter is a model that does what the text say
 - Terms defined once and used one way. A renamed term, label or section left under the old name elsewhere ("see Independent verification" after the section was renamed). One word used for two things.
 - Numbers and limits that match everywhere: caps, thresholds, severity ranges, counts in examples.
 - Examples that agree with the rule they illustrate. Models copy examples more faithfully than they follow rules, so a wrong example is a wrong rule.
-- Paths, file names, tool names and commands that exist. Search for each one the change names or renames. Run any consistency check the project has (here, `scripts/detect_languages.py --check`).
+- Paths, file names, tool names and commands that exist. Search for each one the change names or renames. Run any consistency check the project has when that is safe, as for any command in `verification.md`. A check the change itself edits runs code from the change under review: read it first, and if you don't run it, say so in "Not covered". (In this skill's own repository, the check is `python skills/code-change-review/scripts/detect_languages.py --check`, run from the root.)
 - A skill's frontmatter `description` still matches what the skill now does and when it should trigger.
 
 ## How the model will read it
