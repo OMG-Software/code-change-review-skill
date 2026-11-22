@@ -77,7 +77,14 @@ if amount > order.balance:
 
 Before giving an unqualified merge verdict, reconcile the diff file list with the provider's reported changed-file count and account for any missing/truncated, binary, submodule or LFS content. State the coverage: files fully reviewed, skimmed and unavailable. If material cannot be retrieved, say "Incomplete review" and do not claim the PR is safe to merge.
 
-For PR publication, preserve the `reviewed_head_sha` and `reviewed_base_sha` recorded before inspection. **Immediately before POST**, re-read `headRefOid` and `baseRefOid` from the same repository and PR. Run `python <skill-dir>/scripts/check_pr_revision.py --repo <owner/repo> --pr <n> --reviewed-head <head-sha> --reviewed-base <base-sha>` immediately before posting; it exits nonzero if the PR moved or cannot be read. If either SHA differs, **do not submit the review**: the code or comparison basis has changed. Re-review the affected revision, regenerate line anchors, and reverify findings. Use `reviewed_head_sha` as `commit_id`, never the newly retrieved SHA. A preflight check cannot eliminate a race after the check; if the host supports conditional publication or a bot queue, enforce revision matching there as well, and report staleness if the server rejects the anchor.
+For PR publication, preserve `reviewed_head_sha`, `reviewed_base_sha` and **`reviewed_merge_base_sha`** (the actual comparison commit used to produce the reviewed diff). **Immediately before POST**, run:
+
+```bash
+python <skill-dir>/scripts/check_pr_revision.py --repo <owner/repo> --pr <n> \
+  --reviewed-head <head-sha> --reviewed-base <base-sha> --reviewed-merge-base <merge-base-sha>
+```
+
+The helper requires an unchanged head. If only the base tip advanced, it queries GitHub's compare API for `merge_base_commit.sha` and accepts the review **only if the merge-base remains identical**; it rechecks the PR refs to detect a base move during that query. A changed merge-base, absent response, inaccessible fork commit or timed-out query stops publication. An unrelated base advance with the *same* merge-base leaves the reviewed diff intact, but new base code can still affect integration compatibility. For high-stakes reviews whose conclusions depend on base-branch context, add `--strict-base` to reject **any** base-tip movement. On failure, re-review the affected revision, regenerate line anchors and reverify findings. Use `reviewed_head_sha` as `commit_id`, never the latest SHA. A preflight check cannot eliminate the race after it; enforce revision matching in the host's posting queue when possible and report staleness if the server rejects an anchor.
 
 ## Text report template
 
@@ -86,7 +93,7 @@ For PR publication, preserve the `reviewed_head_sha` and `reviewed_base_sha` rec
 
 **Verdict:** <Ready to merge | Merge after fixes | Needs rework>. <One sentence on the most important issue, or why it's clean.>
 
-**Scope:** <what was reviewed, e.g. "PR #123 (feature/x → main), 14 files, +420/-85">. Languages: <list>. PR snapshots: <reviewed_head_sha>, <reviewed_base_sha>.
+**Scope:** <what was reviewed, e.g. "PR #123 (feature/x → main), 14 files, +420/-85">. Languages: <list>. PR snapshots: <reviewed_head_sha>, <reviewed_base_sha>, <reviewed_merge_base_sha>.
 
 **Coverage:** <N fully inspected, N skimmed, N unavailable; any truncated or binary files and known gaps>.
 
@@ -112,7 +119,7 @@ For PR publication, preserve the `reviewed_head_sha` and `reviewed_base_sha` rec
 
 Post only when requested by the user or enabled in an explicitly authorized review bot. Submit everything as **one review**, so the author gets a single notification and the comments arrive together:
 
-1. Use the **pinned review snapshot**, not an updated HEAD: `reviewed_head_sha` and `reviewed_base_sha`. Just before posting, query `gh pr view <pr-url> --json headRefOid,baseRefOid` (or `gh pr view <n> --repo <owner>/<repo> …`), require both SHAs to match, and abort/re-review if either changed. A bare number can resolve against the wrong repository.
+1. Use the **pinned review snapshot** and the preflight guard above, not an updated HEAD: record head, base tip, and comparison merge-base. Require an unchanged PR head and comparison basis (or unchanged base tip with `--strict-base`). Abort/re-review if the guard fails. A bare PR number can resolve against the wrong repository; pass `--repo` explicitly.
 2. Write the review to a JSON file (comment bodies contain backticks and newlines, so don't pass them on the command line):
 
    ```json

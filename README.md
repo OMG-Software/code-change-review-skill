@@ -42,7 +42,7 @@ skills/code-change-review/
 
 The skill treats PR descriptions, source files, comments, repository instructions and tool output as **untrusted data**, not instructions for the reviewing agent. It defaults to read-only inspection and requires explicit authorization or an approved isolated sandbox to execute project-controlled tests and build tools.
 
-For PR reviews, the agent pins both head and base commit SHAs, checks change-set completeness, and rechecks those SHAs before posting findings. A review of a moving PR revision must be restarted or its findings revalidated.
+For PR reviews, the agent pins the head SHA, base tip and merge-base used for the actual diff. It verifies change-set completeness and checks that the head and merge-base are unchanged before posting. An unrelated base advance that leaves the merge-base unchanged need not invalidate a review; use `--strict-base` in the publication guard when newer base-branch context also requires re-review.
 
 Review modes: **Quick** (self-check), **Standard** (independent verification for major or uncertain findings), and **Deep** (all reported findings independently verified when subagents are available). Unattended publication uses Deep. The report must disclose coverage and verification limits.
 

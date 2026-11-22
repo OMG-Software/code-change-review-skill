@@ -30,7 +30,7 @@ Work out exactly what is under review before reading any code. If the user didn'
 
 **Pull requests.** "Review PR 123" or "review PR #123" means PR 123 in the current repository. A URL (`https://github.com/<owner>/<repo>/pull/<n>`) can be passed to `gh` as is, and works from any directory, even for another repository. For a GitLab merge request use `glab mr view` / `glab mr diff`. The diff alone is not enough context (step 3), so read the PR's versions of the files too:
 
-- **Pin the PR revision before starting.** Get `headRefOid` and `baseRefOid` from `gh pr view <n-or-url> --json headRefOid,baseRefOid`; preserve both as `reviewed_head_sha` and `reviewed_base_sha`. For a numerical PR identifier use `--repo <owner>/<repo>` whenever repository selection could be ambiguous. All source inspection, coverage accounting and comments must relate to this pinned snapshot.
+- **Pin the PR revision before starting.** Get `headRefOid` and `baseRefOid` from `gh pr view <n-or-url> --json headRefOid,baseRefOid`; preserve both as `reviewed_head_sha` and `reviewed_base_sha`. Also record `reviewed_merge_base_sha` from the actual comparison (e.g. `git merge-base <reviewed_base_sha> <reviewed_head_sha>` after fetching both commits, or GitHub's `gh api repos/<owner>/<repo>/compare/<base-sha>...<head-sha> --jq .merge_base_commit.sha` for a remote PR). Do not substitute the base branch tip for the merge-base. For a numerical PR identifier use `--repo <owner>/<repo>` whenever repository selection could be ambiguous. All source inspection, coverage accounting and comments must relate to this pinned snapshot.
 - If the PR is from the current repository, fetch its head and base without switching branches, into dedicated refs. Fetch from the remote that points at the PR's **base repository** (check `git remote -v`); in a fork this is usually `upstream`, not `origin`:
 
   ```bash
@@ -39,7 +39,7 @@ Work out exactly what is under review before reading any code. If the user didn'
   git rev-parse refs/review/pr-<n>-head  # must equal reviewed_head_sha
   ```
 
-  If either fetch fails or either commit differs from the pinned SHAs, stop and re-pin rather than reviewing stale or mixed code. Read head files with `git show refs/review/pr-<n>-head:<path>` and compare with `git merge-base refs/review/pr-<n>-base refs/review/pr-<n>-head`. Use `gh pr checkout <n>` only with permission to alter the working tree.
+  If either fetch fails or either commit differs from the pinned SHAs, stop and re-pin rather than reviewing stale or mixed code. Read head files with `git show refs/review/pr-<n>-head:<path>` and compare with `git merge-base refs/review/pr-<n>-base refs/review/pr-<n>-head`; store that exact result as `reviewed_merge_base_sha`. Use `gh pr checkout <n>` only with permission to alter the working tree.
 - For another repository, read files at the **pinned** head using `gh api -H "Accept: application/vnd.github.raw+json" "repos/<owner>/<repo>/contents/<path>?ref=<reviewed_head_sha>"` (quote the URL because `?` is a glob character in zsh). The Contents API otherwise returns Base64 data. Handle unavailable/oversized contents explicitly or clone to an isolated temporary directory; do not pretend that an unreadable file was reviewed.
 - Read the existing feedback so you don't repeat what's been raised, answered or resolved. `gh pr view <n> --comments` shows only top-level comments; inline review threads, their replies and whether each is resolved come from GraphQL:
 

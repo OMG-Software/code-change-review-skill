@@ -20,41 +20,111 @@ from score_evals import score
 
 
 class RevisionGuardTests(unittest.TestCase):
-    def test_requires_both_shas(self):
-        head = "a" * 40
-        base = "b" * 40
-        self.assertTrue(check_snapshot({"headRefOid": head, "baseRefOid": base}, head, base))
-        self.assertFalse(check_snapshot({"headRefOid": "c" * 40, "baseRefOid": base}, head, base))
-        self.assertFalse(check_snapshot({"headRefOid": head, "baseRefOid": "c" * 40}, head, base))
-        self.assertFalse(check_snapshot({}, head, base))
+    HEAD = "a" * 40
+    BASE = "b" * 40
+    NEW_BASE = "c" * 40
+    MERGE_BASE = "d" * 40
 
+    def _snapshot(self, head=None, base=None):
+        return {"headRefOid": head or self.HEAD, "baseRefOid": base or self.BASE}
 
-    def _call_main(self, gh_result=None, error=None):
-        head = "a" * 40
-        base = "b" * 40
-        argv = ["check_pr_revision.py", "--repo", "example/repo", "--pr", "7",
-                "--reviewed-head", head, "--reviewed-base", base]
-        output = json.dumps(gh_result if gh_result is not None else
-                            {"headRefOid": head, "baseRefOid": base})
-        run_value = subprocess.CompletedProcess(args=["gh"], returncode=0, stdout=output)
-        with patch.object(sys, "argv", argv), patch.object(
-            check_pr_revision.subprocess, "run", return_value=run_value, side_effect=error
+    @staticmethod
+    def _completed(stdout: str):
+        return subprocess.CompletedProcess(args=["gh"], returncode=0, stdout=stdout)
+
+    def _call_main(self, *, first=None, merge_base=None, final=None,
+                   error=None, strict=False):
+        args = ["check_pr_revision.py", "--repo", "example/repo", "--pr", "7",
+                "--reviewed-head", self.HEAD, "--reviewed-base", self.BASE,
+                "--reviewed-merge-base", self.MERGE_BASE]
+        if strict:
+            args.append("--strict-base")
+        if first is None:
+            first = self._snapshot()
+        responses = [self._completed(json.dumps(first))]
+        if first.get("headRefOid") == self.HEAD and first.get("baseRefOid") != self.BASE and not strict:
+            responses.append(self._completed(merge_base if merge_base is not None
+                                              else self.MERGE_BASE))
+            responses.append(self._completed(json.dumps(final if final is not None
+                                                         else first)))
+        if error is not None:
+            responses = [error]
+        with patch.object(sys, "argv", args), patch.object(
+            check_pr_revision.subprocess, "run", side_effect=responses
         ) as mocked, redirect_stdout(io.StringIO()), redirect_stderr(io.StringIO()):
             exit_code = check_pr_revision.main()
-        mocked.assert_called_once()
-        self.assertEqual(mocked.call_args.kwargs["timeout"], 60)
-        return exit_code
+        for call in mocked.call_args_list:
+            self.assertEqual(call.kwargs["timeout"], 60)
+        return exit_code, mocked.call_args_list
 
-    def test_success_path(self):
-        self.assertEqual(self._call_main(), 0)
+    def test_snapshot_logic(self):
+        same = self._snapshot()
+        advanced = self._snapshot(base=self.NEW_BASE)
+        args = (self.HEAD, self.BASE, self.MERGE_BASE)
+        self.assertTrue(check_snapshot(same, *args))
+        self.assertTrue(check_snapshot(advanced, *args, self.MERGE_BASE))
+        self.assertFalse(check_snapshot(advanced, *args))
+        self.assertFalse(check_snapshot(advanced, *args, "e" * 40))
+        self.assertFalse(check_snapshot(self._snapshot(head="f" * 40), *args))
 
-    def test_changed_head_fails_closed(self):
-        self.assertEqual(self._call_main(gh_result={
-            "headRefOid": "c" * 40, "baseRefOid": "b" * 40
-        }), 3)
+    def test_unmoved_pr_needs_only_one_request(self):
+        code, calls = self._call_main()
+        self.assertEqual(code, 0)
+        self.assertEqual(len(calls), 1)
+
+    def test_unchanged_merge_base_allows_unrelated_main_commit(self):
+        code, calls = self._call_main(first=self._snapshot(base=self.NEW_BASE))
+        self.assertEqual(code, 0)
+        self.assertEqual(len(calls), 3)
+        self.assertEqual(
+            calls[1].args[0],
+            ["gh", "api", f"repos/example/repo/compare/{self.NEW_BASE}...{self.HEAD}",
+             "--jq", ".merge_base_commit.sha"],
+        )
+
+    def test_changed_merge_base_blocks(self):
+        code, _ = self._call_main(first=self._snapshot(base=self.NEW_BASE),
+                                  merge_base="e" * 40)
+        self.assertEqual(code, 3)
+
+    def test_unknown_merge_base_fails_closed(self):
+        code, _ = self._call_main(first=self._snapshot(base=self.NEW_BASE),
+                                  merge_base="null")
+        self.assertEqual(code, 2)
+
+    def test_changed_head_blocks(self):
+        code, calls = self._call_main(first=self._snapshot(head="f" * 40))
+        self.assertEqual(code, 3)
+        self.assertEqual(len(calls), 1)
+
+    def test_base_move_during_compare_blocks(self):
+        code, _ = self._call_main(
+            first=self._snapshot(base=self.NEW_BASE), final=self._snapshot()
+        )
+        self.assertEqual(code, 3)
+
+    def test_strict_base_blocks_even_when_diff_unchanged(self):
+        code, calls = self._call_main(first=self._snapshot(base=self.NEW_BASE),
+                                      strict=True)
+        self.assertEqual(code, 3)
+        self.assertEqual(len(calls), 1)
 
     def test_timeout_fails_closed(self):
-        self.assertEqual(self._call_main(error=subprocess.TimeoutExpired(["gh"], 60)), 2)
+        code, _ = self._call_main(error=subprocess.TimeoutExpired(["gh"], 60))
+        self.assertEqual(code, 2)
+
+    def test_compare_api_failure_fails_closed(self):
+        first = self._snapshot(base=self.NEW_BASE)
+        args = ["check_pr_revision.py", "--repo", "example/repo", "--pr", "7",
+                "--reviewed-head", self.HEAD, "--reviewed-base", self.BASE,
+                "--reviewed-merge-base", self.MERGE_BASE]
+        with patch.object(sys, "argv", args), patch.object(
+            check_pr_revision.subprocess, "run",
+            side_effect=[self._completed(json.dumps(first)),
+                         subprocess.CalledProcessError(1, ["gh", "api"])],
+        ), redirect_stdout(io.StringIO()), redirect_stderr(io.StringIO()):
+            code = check_pr_revision.main()
+        self.assertEqual(code, 2)
 
 
 class ReviewScorerTests(unittest.TestCase):
@@ -79,6 +149,19 @@ class ReviewScorerTests(unittest.TestCase):
                 score_evals.main()
         result = json.loads(output.getvalue())
         self.assertEqual(result["cases"], len(case_ids))
+
+    def test_corpus_diffs_are_actual_multiline_text(self):
+        cases = json.loads((ROOT / "evals" / "cases.json").read_text())["cases"]
+        for case in cases:
+            with self.subTest(case=case["id"]):
+                self.assertIn("\n", case["diff"])
+                self.assertNotIn(r"\n", case["diff"])
+
+    def test_prompt_injection_attempt_is_expected_finding(self):
+        cases = json.loads((ROOT / "evals" / "cases.json").read_text())["cases"]
+        attack = next(case for case in cases if case["id"] == "untrusted-comment")
+        self.assertEqual([finding["id"] for finding in attack["expected"]],
+                         ["review-instruction-injection"])
 
     def test_missing_case_is_error(self):
         with self.assertRaises(ValueError):
