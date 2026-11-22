@@ -111,12 +111,16 @@ def _path_rule_matches(label: str, lower_path: str, name: str) -> bool:
     return fnmatch.fnmatchcase(name, label)
 
 
-def _env_command(words: list[str]) -> list[str]:
+def _env_command(words: list[str], raw_words: list[str] | None = None) -> list[str]:
     """Return the command after env options/assignments, never option arguments.
 
     A skipped -u/--unset or -C/--chdir argument may look like an interpreter.
     Unknown options are not guessed: leave the file unmapped for manual review.
     """
+    # Keep original spellings: shlex has already removed quotes from words,
+    # but env -S must split the *raw* command to preserve quoted assignments.
+    if raw_words is None:
+        raw_words = words[:]
     i = 0
     no_value = {"-", "-i", "--ignore-environment", "-0", "--null", "-v", "--debug"}
     with_value = {"-u", "--unset", "-C", "--chdir"}
@@ -132,42 +136,32 @@ def _env_command(words: list[str]) -> list[str]:
         split_cluster = re.fullmatch(r"-[iv0]*S(.*)", part)
         if (part == "--split-string" or part.startswith("--split-string=")
                 or split_cluster is not None):
-            # shebang_ref has *already* shlex-tokenized the line. Joining and
-            # splitting all remaining words again destroys quoted values:
-            # LABEL='x node' becomes two words, and "node" is misidentified
-            # as the interpreter instead of the following "python3".
+            # Parse the original -S string, before quotes were removed.
+            # Re-tokenizing decoded words would split LABEL='x node' into
+            # LABEL=x and node, potentially routing to the wrong language.
+            original_option = raw_words[i]
             if part.startswith("--split-string="):
-                prefix = part.partition("=")[2]
+                prefix = original_option.partition("=")[2]
             elif split_cluster is not None:
-                prefix = split_cluster.group(1)
+                raw_cluster = re.fullmatch(r"-[iv0]*S(.*)", original_option)
+                prefix = (raw_cluster.group(1) if raw_cluster is not None
+                          else split_cluster.group(1))
             else:
                 prefix = ""
-
-            # A command plus its arguments may have been quoted as one word
-            # (env -S 'python3 -u'). Split that *one* word, not every already
-            # parsed assignment. If it starts with NAME= and has no quotes
-            # left, the space belongs to the assignment value.
-            def split_chunk(chunk: str) -> list[str]:
-                if not chunk:
-                    return []
-                if (" " not in chunk and "\t" not in chunk
-                        and "'" not in chunk and '"' not in chunk):
-                    return [chunk]
-                if (re.match(r"^[A-Za-z_][A-Za-z0-9_]*=", chunk)
-                        and "'" not in chunk and '"' not in chunk):
-                    return [chunk]
-                return shlex.split(chunk)
-
+            split_text = " ".join(([prefix] if prefix else []) + raw_words[i + 1:])
+            if not split_text:
+                return []
             try:
-                if prefix:
-                    words = words[:i] + split_chunk(prefix) + words[i + 1:]
-                else:
-                    i += 1
-                    if i >= len(words):
-                        return []
-                    words = words[:i] + split_chunk(words[i]) + words[i + 1:]
+                split_words = shlex.split(split_text)
+                # Kernel shebang arguments may quote the entire -S command.
+                # In that case treat the single resulting string as a command
+                # string, e.g. 'FOO=bar python3 -u', rather than one assignment.
+                if len(split_words) == 1 and any(ch.isspace() for ch in split_words[0]):
+                    split_words = shlex.split(split_words[0])
             except ValueError:
                 return []
+            words = words[:i] + split_words
+            raw_words = raw_words[:i] + split_words
         elif part in no_value:
             i += 1
         elif part in with_value:
@@ -192,11 +186,25 @@ def shebang_ref(first_line: str) -> str | None:
     if not first_line.startswith("#!"):
         return None
     try:
-        words = shlex.split(first_line[2:].strip())
+        source = first_line[2:].strip()
+        lexer = shlex.shlex(source, posix=True)
+        lexer.whitespace_split = True
+        lexer.commenters = ""
+        words: list[str] = []
+        raw_words: list[str] = []
+        start = 0
+        while True:
+            token = lexer.get_token()
+            if token is None:
+                break
+            end = lexer.instream.tell()
+            words.append(token)
+            raw_words.append(source[start:end].strip())
+            start = end
     except ValueError:
         return None
     if words and PurePosixPath(words[0]).name == "env":
-        words = _env_command(words[1:])
+        words = _env_command(words[1:], raw_words[1:])
     if not words:
         return None
     interpreter = re.sub(r"[\d.]+$", "", PurePosixPath(words[0]).name.lower())

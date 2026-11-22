@@ -176,6 +176,16 @@ class ReviewScorerTests(unittest.TestCase):
                             "hijack", "ignore previous directions"):
             self.assertNotIn(answer_hint, prompt_metadata)
 
+    def test_missing_all_findings_is_not_perfect_precision(self):
+        result = score(self.cases, {"bug": [], "clean": []})
+        self.assertEqual((result["precision"], result["recall"], result["f1"]),
+                         (0.0, 0.0, 0.0))
+
+    def test_all_clean_cases_with_no_reports_are_perfect(self):
+        result = score([{"id": "clean", "expected": []}], {"clean": []})
+        self.assertEqual((result["precision"], result["recall"], result["f1"]),
+                         (1.0, 1.0, 1.0))
+
     def test_missing_case_is_error(self):
         with self.assertRaises(ValueError):
             score(self.cases, {"bug": ["broken"]})

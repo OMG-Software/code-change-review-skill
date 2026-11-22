@@ -77,13 +77,16 @@ def main() -> int:
     try:
         current = _pr_revision(args.repo, args.pr)
         if current["headRefOid"] != args.reviewed_head:
-            print("PR head changed since inspection: re-review.", file=sys.stderr)
+            print(f"PR head changed: reviewed {args.reviewed_head[:12]}, "
+                  f"current {current['headRefOid'][:12]}; re-review.", file=sys.stderr)
             return 3
 
         current_merge_base = None
         if current["baseRefOid"] != args.reviewed_base:
             if args.strict_base:
-                print("PR base tip changed (strict-base mode): re-review.", file=sys.stderr)
+                print(f"PR base tip changed (strict-base): reviewed "
+                      f"{args.reviewed_base[:12]}, current {current['baseRefOid'][:12]}; "
+                      "re-review.", file=sys.stderr)
                 return 3
             current_merge_base = _merge_base(
                 args.repo, current["baseRefOid"], args.reviewed_head,
@@ -91,16 +94,21 @@ def main() -> int:
             # A base update during the compare must not be approved using an
             # obsolete base revision. There is still a non-atomic POST window.
             if _pr_revision(args.repo, args.pr) != current:
-                print("PR revision moved during preflight: re-review.", file=sys.stderr)
+                print("PR head or base moved during merge-base verification; "
+                      "recheck the PR and re-review.", file=sys.stderr)
                 return 3
     except (OSError, subprocess.CalledProcessError, subprocess.TimeoutExpired,
             ValueError) as exc:
-        print(f"Cannot check PR revision: {exc}", file=sys.stderr)
+        print(f"Cannot verify PR {args.repo}#{args.pr}: {exc}. Check GitHub CLI "
+              "authentication, repository permissions and commit availability; "
+              "do not publish.", file=sys.stderr)
         return 2
 
     if not check_snapshot(current, args.reviewed_head, args.reviewed_base,
                           args.reviewed_merge_base, current_merge_base):
-        print("PR comparison basis changed since inspection: re-review.", file=sys.stderr)
+        print(f"PR merge-base changed: reviewed {args.reviewed_merge_base[:12]}, "
+              f"current {(current_merge_base or 'unavailable')[:12]}; re-review.",
+              file=sys.stderr)
         return 3
     if current_merge_base is None:
         print("PR head and base match the reviewed snapshot.")

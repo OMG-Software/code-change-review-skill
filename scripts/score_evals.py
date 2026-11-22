@@ -29,7 +29,9 @@ def score(cases: list[dict], predictions: dict[str, list[str]]) -> dict:
         tp += len(expected & found)
         fp += len(found - expected)
         fn += len(expected - found)
-    precision = tp / (tp + fp) if tp + fp else 1.0
+    # No reported findings are not perfect precision when real bugs were missed.
+    # A fully clean corpus with no reports is the one vacuous-perfect case.
+    precision = tp / (tp + fp) if tp + fp else (1.0 if fn == 0 else 0.0)
     recall = tp / (tp + fn) if tp + fn else 1.0
     f1 = 2 * precision * recall / (precision + recall) if precision + recall else 0.0
     return {"cases": len(cases), "true_positives": tp, "false_positives": fp,

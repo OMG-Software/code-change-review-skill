@@ -55,7 +55,7 @@ python -m unittest discover -s tests -v
 python scripts/score_evals.py < predictions.json
 ```
 
-GitHub Actions runs these checks on pushes and pull requests. `evals/` contains a small, expandable manual benchmark corpus and a scoring tool; its cases are **not** yet an automatic demonstration of review-model precision or recall.
+GitHub Actions runs the language-routing consistency check and unit tests on pull requests and pushes to `main`; manual evaluation scoring requires adjudicated predictions and is not run in CI. `evals/` contains a small, expandable manual benchmark corpus and a scoring tool; its cases are **not** yet an automatic demonstration of review-model precision or recall.
 
 ## Installing
 
