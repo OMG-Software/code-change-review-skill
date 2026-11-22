@@ -120,7 +120,7 @@ Most false positives rest on one fact the reviewer assumed instead of checking. 
 - **List its load-bearing facts** (what a type is, what a callee does, who calls it with what, that something is absent, what the language or spec says) and **settle each one by reading or running something you can cite**. A name, an idiom or "the likely design" settles nothing. Before claiming something is missing or unused, search the whole repository.
 - **Argue against it.** Look for the guard, counterpart, caller, test, spec section or decision record that would make it wrong. Evidence against the finding (tests pass, it works in production) counts against it; don't explain it away.
 - **Grade confidence:** *Confirmed* (every load-bearing fact settled) or *Plausible* (the deciding fact is out of reach, such as production config or another service). If you could check the deciding fact with the tools you have, check it: it is not Plausible. Drop anything else, or ask it as a question that names the unsettled fact.
-- **Verify independently** when the host can start subagents: give each `[P1]`–`[P3]` finding to one that hasn't seen your reasoning, and ask it to disprove the finding.
+- **Have a fresh agent try to disprove it.** Once every finding is drafted and checked, and whenever the host can start subagents, give each finding you will report to its own new agent: not a fork of your conversation, and never one agent for several findings. Send only the claim, its `file:line` and how to read the change, never your scenario or evidence, and ask it to refute the finding. Run them in parallel and drop what they refute. `references/verification.md` has the brief to send and how to act on each verdict.
 
 ### 6. Report
 
@@ -130,6 +130,7 @@ Use `references/reporting.md` for the severity tags, the comment format and the 
 - **Every finding starts with its severity label: `[P1] CRITICAL`, `[P2] MAJOR`, `[P3] MINOR (Defect)`, `[P4] MINOR (Quality)` or `[P5] NIT`**, where the `[Pn]` rank comes first and `[P1]` is the most severe, then a one-line claim and its `file:line`. The body explains, in this order, what the issue is, why it is a problem (the concrete failure scenario), and a suggested fix or improvement wherever you can offer one.
 - List findings with the most severe first. Default cap of about 10. Mention how many lower-severity items you left out, and list them if the user asks.
 - Keep `[P5] NIT` findings out unless there are no real defects, or the user asked for a thorough pass.
+- Say how the findings were verified: how many went to fresh verifiers and how many they refuted, or that none were independently verified and why.
 - End with what you did *not* cover (files skimmed, things you couldn't run). An honest scope note is part of the review.
 
 Use the same label-first format for comments posted on a pull request, so a finding reads the same in the report and on the PR. Post to the PR only when the user asks you to; `references/reporting.md` shows how to post them as one review with inline comments. When findings are posted with no human reviewing them first (a review bot or CI job), apply the stricter bar in `references/verification.md`.

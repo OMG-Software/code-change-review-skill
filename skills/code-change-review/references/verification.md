@@ -7,7 +7,7 @@ Read this before reporting any finding. Most false positives are not invented bu
 - The procedure (load-bearing facts, settle each, argue against it, grade)
 - How deep to go (what counts as settled)
 - False positive patterns and the check that catches each
-- Independent verification
+- Adversarial verification by a fresh agent (required when subagents are available)
 - Posting without a human in the loop
 
 ---
@@ -83,20 +83,73 @@ Each pattern below is a real kind of rejected review comment, with the check tha
 | **Library behaviour from memory** | "This function throws on empty input." | Read the pinned version's source or docs; behaviour changes between versions. |
 | **Concurrency that can't happen** | "Two requests can race on this map." | Confirm the code runs concurrently: thread model, event loop, actor, per-request instance, lock held by the caller. |
 
-## Independent verification
+## Adversarial verification by a fresh agent
 
-If you can start subagents, verify each `[P1]`–`[P3]` finding with one that hasn't seen your reasoning:
+Arguing against your own finding (step 3) only goes so far: you re-read the code through the reasoning that produced the finding, and the assumption that made it wrong looks just as reasonable the second time. So once you have drafted every finding and run the procedure above on each, hand each one to an agent whose only job is to disprove it, and who has never seen how you got there.
 
-- Give it the claim, the file paths and line numbers, and how to read the code (the PR ref or branch). Don't give it your failure scenario or your confidence, so its read isn't anchored on yours.
-- Ask it to **disprove** the finding: find the guard, the definition, the caller, the test, the spec section or the decision record that makes it wrong, and to return `holds`, `refuted` (with the citation) or `unsettled` (with the fact it couldn't settle).
-- Drop `refuted` findings. For `unsettled`, settle the named fact yourself or apply the grading rules above.
+This is required whenever the host can start subagents. It applies to **every finding that will appear in the report**, at any severity, including the held-back "Also noted" items. Nits you only count ("N `[P5] NIT` findings omitted") don't need it.
 
-Verify findings in parallel where the host allows it. Without subagents, do step 3 of the procedure as a separate pass after you have drafted every finding, so you are re-reading the code rather than your own reasoning.
+### Who verifies
+
+- **A fresh agent per finding.** Start a new agent with nothing but the brief below. Not a fork or copy of your conversation, not a continuation of an earlier verifier, not one agent checking several findings: each of those carries context that anchors the verdict. In Claude Code that means the Agent tool with a non-fork type such as `general-purpose`.
+- **All at once.** The verifiers are independent, so start them in parallel (in Claude Code, several Agent calls in one message) and wait for every verdict before writing the report.
+
+### What to send
+
+Send the claim and where to look. Leave out your failure scenario, the facts you think you settled, your evidence, your confidence and the severity: they are exactly the reasoning the verifier must not inherit. Fill in this brief:
+
+```text
+You are checking one finding from a code review. Your job is to try to disprove it.
+Assume the reviewer may be wrong; most wrong findings rest on one fact they assumed
+instead of checking.
+
+Repository: <absolute path to the checkout, or owner/repo for a remote PR>
+Change under review: <how to see it, e.g. `git diff <merge-base>..refs/review/pr-123`,
+  files read with `git show refs/review/pr-123:<path>`; or `gh pr diff <url>`>
+What the change is meant to do: <one or two lines from the PR description or commits>
+Finding: <the claim in one sentence, stated as what goes wrong>
+Location: <file:line, plus any other file:line the claim names>
+
+Work read-only: don't edit files, switch branches, check out the PR or post anything.
+You may run a test, the type checker or a small script when that is cheap and safe.
+
+1. List the facts the claim depends on: what a type is, what a callee does, who calls
+   this and with what input, anything claimed to be missing or unused, what the
+   language, library version or spec says, and whether the project decided this on
+   purpose.
+2. Try to falsify each one. Open definitions instead of trusting names. Trace callers
+   up to the trust boundary and data down to the sink. Read the counterpart (reader
+   and writer, lock and unlock, migration up and down). Search the whole repository
+   before accepting that anything is missing or unused. Read the library version the
+   lockfile pins. Find the spec section. Read ADRs, design docs, comments and the rest
+   of the change. The table "False positive patterns" in
+   <skill-dir>/references/verification.md lists the usual mistakes; check each one
+   that applies.
+3. Return exactly one verdict:
+   - refuted: the file:line, doc section or command output that shows a fact the
+     claim depends on is false, and which fact.
+   - holds: you tried and failed to disprove it. List what you checked, with
+     citations, and give a concrete input or state that triggers the failure.
+   - unsettled: the fact you could not settle, and why.
+A refutation needs a citation that contradicts the claim, just as the finding needs
+one to stand. Don't refute on a hunch, and don't confirm on one either.
+```
+
+### Acting on the verdict
+
+- **`refuted`:** read the citation. If it says what the verifier says it does, drop the finding. Don't argue your way back to it; finding a reason the refutation "doesn't really apply" is the same mistake as explaining away a passing test. Only if the citation is wrong (the line doesn't exist or plainly says something else) start one more fresh verifier with the same brief, and accept its verdict.
+- **`unsettled`:** settle the named fact yourself if your tools reach it, then grade as in step 4. If it is genuinely out of reach, the finding is at best Plausible and names that fact. Otherwise drop it.
+- **`holds`:** report it. If the verifier's failure scenario differs from yours, check yours again: the bug may be real but your explanation wrong, and the author should get the one that is right.
+
+### Without subagents
+
+If the host can't start subagents, do step 3 of the procedure as a separate pass after drafting every finding, so you are re-reading the code rather than your own reasoning, and say in the report's verification line that findings were not independently verified.
 
 ## Posting without a human in the loop
 
 When findings go straight onto a pull request (a review bot, a CI job), nobody filters them before the author sees them, so raise the bar:
 
-- Post only Confirmed findings, plus Plausible `[P1]`/`[P2]` findings whose deciding fact is genuinely out of reach and named in the comment.
+- Post only findings a fresh verifier returned `holds` for, or `unsettled` on a fact that is genuinely out of reach (the Plausible case below). If the host can't start subagents, say in the review body that the findings were not independently verified.
+- Of those, post only Confirmed findings, plus Plausible `[P1]`/`[P2]` findings whose deciding fact is genuinely out of reach and named in the comment.
 - Leave out Plausible `[P3]`–`[P5]` findings. If you want, list them in the review body as questions.
 - Cite the lines that settle the load-bearing facts in **Why it matters**, so the author can check your reasoning in seconds instead of re-deriving it.

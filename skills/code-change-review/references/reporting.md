@@ -82,6 +82,8 @@ if amount > order.balance:
 
 **Scope:** <what was reviewed, e.g. "PR #123 (feature/x → main), 14 files, +420/-85">. Languages: <list>.
 
+**Verification:** <"N findings checked by fresh verifiers; M refuted and dropped." | "Not independently verified: <reason, e.g. no subagents available>.">
+
 ### Findings
 
 <Each finding in the comment format above, most severe first, separated by a blank line or `---`.>
