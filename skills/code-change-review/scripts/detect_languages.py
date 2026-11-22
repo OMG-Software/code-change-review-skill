@@ -111,13 +111,23 @@ def _env_command(words: list[str]) -> list[str]:
     Unknown options are not guessed: leave the file unmapped for manual review.
     """
     i = 0
-    no_value = {"-S", "--split-string", "-i", "--ignore-environment", "-0", "--null", "-v", "--debug"}
+    no_value = {"-i", "--ignore-environment", "-0", "--null", "-v", "--debug"}
     with_value = {"-u", "--unset", "-C", "--chdir"}
     while i < len(words):
         part = words[i]
         if part == "--":
             return words[i + 1:]
-        if part in no_value:
+        if part in {"-S", "--split-string"}:
+            i += 1
+            # env -S splits a command string into words; a quoted string may
+            # contain both the interpreter and its first arguments.
+            if i < len(words) and " " in words[i]:
+                try:
+                    split_words = shlex.split(words[i])
+                except ValueError:
+                    return []
+                words = words[:i] + split_words + words[i + 1:]
+        elif part in no_value:
             i += 1
         elif part in with_value:
             if i + 1 >= len(words):
