@@ -52,7 +52,7 @@ Review modes: **Quick** (self-check), **Standard** (independent verification for
 python skills/code-change-review/scripts/detect_languages.py --check
 python -m unittest discover -s tests -v
 # For manually adjudicated runs (see evals/README.md):
-python scripts/score_evals.py --cases evals/cases.json --predictions predictions.json
+python scripts/score_evals.py < predictions.json
 ```
 
 GitHub Actions runs these checks on pushes and pull requests. `evals/` contains a small, expandable manual benchmark corpus and a scoring tool; its cases are **not** yet an automatic demonstration of review-model precision or recall.

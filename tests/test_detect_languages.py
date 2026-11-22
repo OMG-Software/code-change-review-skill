@@ -29,6 +29,12 @@ class LanguageDetectionTests(unittest.TestCase):
             "#!/usr/bin/env --unset=HOME -C/tmp node": "javascript-typescript",
             "#!/usr/bin/env -i FOO=bar deno run": "javascript-typescript",
             "#!/usr/bin/env -S 'python3 -u'": "python",
+            "#!/usr/bin/env --split-string=python3 -u": "python",
+            "#!/usr/bin/env --split-string='python3 -u'": "python",
+            "#!/usr/bin/env -Spython3 -u": "python",
+            "#!/usr/bin/env -iS python3 -u": "python",
+            "#!/usr/bin/env -S -u HOME python3.12": "python",
+            "#!/usr/bin/env --split-string=": None,
             "#!/usr/bin/python3.12": "python",
             "#!/bin/bash": "shell",
             "#!/usr/bin/env -Z python3": None,  # unknown option: don't guess

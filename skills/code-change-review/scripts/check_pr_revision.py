@@ -33,10 +33,10 @@ def main() -> int:
         result = subprocess.run(
             ["gh", "pr", "view", str(args.pr), "--repo", args.repo,
              "--json", "headRefOid,baseRefOid"],
-            text=True, capture_output=True, check=True,
+            text=True, capture_output=True, check=True, timeout=60,
         )
         current = json.loads(result.stdout)
-    except (OSError, subprocess.CalledProcessError, ValueError) as exc:
+    except (OSError, subprocess.CalledProcessError, subprocess.TimeoutExpired, ValueError) as exc:
         print(f"Cannot check PR revision: {exc}", file=sys.stderr)
         return 2
     if not check_snapshot(current, args.reviewed_head, args.reviewed_base):

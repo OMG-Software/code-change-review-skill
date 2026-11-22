@@ -117,16 +117,27 @@ def _env_command(words: list[str]) -> list[str]:
         part = words[i]
         if part == "--":
             return words[i + 1:]
-        if part in {"-S", "--split-string"}:
-            i += 1
-            # env -S splits a command string into words; a quoted string may
-            # contain both the interpreter and its first arguments.
-            if i < len(words) and " " in words[i]:
-                try:
-                    split_words = shlex.split(words[i])
-                except ValueError:
-                    return []
-                words = words[:i] + split_words + words[i + 1:]
+        if (part in {"-S", "--split-string"}
+                or part.startswith(("--split-string=", "-S"))
+                or re.fullmatch(r"-[iv0]+S", part)):
+            # The -S/--split-string argument may be attached using =, directly
+            # to -S, or carried in the following words (the kernel may send
+            # the rest of a shebang as a single argument). Parse it once, then
+            # resume scanning so env options inside the split string are handled.
+            if part.startswith("--split-string="):
+                prefix = part.partition("=")[2]
+            elif part.startswith("-S") and part != "-S":
+                prefix = part[2:]
+            else:
+                prefix = ""
+            split_text = " ".join(([prefix] if prefix else []) + words[i + 1:])
+            if not split_text:
+                return []
+            try:
+                split_words = shlex.split(split_text)
+            except ValueError:
+                return []
+            words = words[:i] + split_words
         elif part in no_value:
             i += 1
         elif part in with_value:

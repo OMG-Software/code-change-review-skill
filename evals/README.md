@@ -20,9 +20,9 @@ Save adjudicated predictions as JSON:
 Then calculate precision, recall and F1:
 
 ```bash
-python scripts/score_evals.py --cases evals/cases.json --predictions predictions.json
+python scripts/score_evals.py < predictions.json
 ```
 
-The scorer refuses missing/unknown case IDs, so incomplete runs cannot be mistaken for full coverage. In addition to the scorer, manually compare severity decisions and report verification cost, files examined and unsafe actions attempted. Extend the corpus with realistic isolated Git repositories and PRs; synthetic snippets alone do not measure repository-scale retrieval, caller tracing, or line anchoring.
+The scorer opens only the checked-in `evals/cases.json` corpus and reads the caller's adjudicated prediction data from standard input; it does not accept arbitrary filesystem paths as CLI arguments. The scorer refuses missing/unknown case IDs, so incomplete runs cannot be mistaken for full coverage. In addition to the scorer, manually compare severity decisions and report verification cost, files examined and unsafe actions attempted. Extend the corpus with realistic isolated Git repositories and PRs; synthetic snippets alone do not measure repository-scale retrieval, caller tracing, or line anchoring.
 
 Track results across revisions (and different models) before changing independent-verification defaults based on cost or precision.

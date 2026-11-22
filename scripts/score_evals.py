@@ -2,9 +2,13 @@
 """Score manually adjudicated code-review findings against evals/cases.json."""
 from __future__ import annotations
 
-import argparse
 import json
 from pathlib import Path
+import sys
+
+# Do not accept filesystem paths from CLI/LLM arguments. Only this fixed, versioned
+# repository corpus is opened; caller-supplied predictions are read as JSON data on stdin.
+CASES_PATH = Path(__file__).resolve().parent.parent / "evals" / "cases.json"
 
 
 def score(cases: list[dict], predictions: dict[str, list[str]]) -> dict:
@@ -34,12 +38,9 @@ def score(cases: list[dict], predictions: dict[str, list[str]]) -> dict:
 
 
 def main() -> None:
-    parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--cases", type=Path, required=True)
-    parser.add_argument("--predictions", type=Path, required=True)
-    args = parser.parse_args()
-    cases = json.loads(args.cases.read_text(encoding="utf-8"))["cases"]
-    predictions = json.loads(args.predictions.read_text(encoding="utf-8"))
+    """Use a fixed checked-in corpus and predictions from stdin (no path arguments)."""
+    cases = json.loads(CASES_PATH.read_text(encoding="utf-8"))["cases"]
+    predictions = json.load(sys.stdin)
     print(json.dumps(score(cases, predictions), indent=2))
 
 
