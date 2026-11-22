@@ -119,7 +119,7 @@ The helper requires an unchanged head. If only the base tip advanced, it queries
 
 Post only when requested by the user or enabled in an explicitly authorized review bot. Submit everything as **one review**, so the author gets a single notification and the comments arrive together:
 
-1. Use the **pinned review snapshot** and the preflight guard above, not an updated HEAD: record head, base tip, and comparison merge-base. Require an unchanged PR head and comparison basis (or unchanged base tip with `--strict-base`). Abort/re-review if the guard fails. A bare PR number can resolve against the wrong repository; pass `--repo` explicitly.
+1. Use the **pinned review snapshot**, not an updated HEAD: record head, base tip, and comparison merge-base. A bare PR number can resolve against the wrong repository; pass `--repo` explicitly.
 2. Write the review to a JSON file (comment bodies contain backticks and newlines, so don't pass them on the command line):
 
    ```json
@@ -134,7 +134,7 @@ Post only when requested by the user or enabled in an explicitly authorized revi
    }
    ```
 
-3. Submit it: `gh api repos/<owner>/<repo>/pulls/<n>/reviews --method POST --input review.json`.
+3. **Immediately before POST**, run the revision guard described above using the recorded head, base, and merge-base. Require an unchanged reviewed head and comparison basis (or unchanged base tip in `--strict-base` mode). Abort and re-review if it fails. Do not edit the payload or perform additional file inspection between this check and publishing.\n4. Submit it: `gh api repos/<owner>/<repo>/pulls/<n>/reviews --method POST --input review.json`.
 
 - `line` must be on a line in the PR's diff (`RIGHT` for the new version, `LEFT` for deleted lines). A finding about code outside the diff goes in the review `body` in the same tag-first format.
 - Use `"event": "COMMENT"` unless the user asks you to approve or request changes.

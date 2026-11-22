@@ -110,8 +110,8 @@ Assume the reviewer may be wrong; most wrong findings rest on one fact they assu
 instead of checking.
 
 Repository: <absolute path to the checkout, or owner/repo for a remote PR>
-Change under review: <how to see it, e.g. `git diff <merge-base>..refs/review/pr-123`,
-  files read with `git show refs/review/pr-123:<path>`; or `gh pr diff <url>`>
+Change under review: <how to see it, e.g. `git diff <merge-base>..refs/review/pr-123-head`,
+  files read with `git show refs/review/pr-123-head:<path>`; or `gh pr diff <url>`>
 What the change is meant to do: <one or two lines from the PR description or commits>
 Finding: <the claim in one sentence: what goes wrong, what it costs, or the question>
 Location: <file:line, plus any other file:line the claim names>

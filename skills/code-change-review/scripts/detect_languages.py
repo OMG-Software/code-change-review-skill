@@ -64,7 +64,8 @@ FILENAMES: dict[str, set[str]] = {
     "swift": {"package.swift", "package.resolved", "podfile"},
     "infrastructure": {"dockerfile", "containerfile", ".dockerignore", "chart.yaml", "values.yaml", "kustomization.yaml",
                        ".gitlab-ci.yml", "azure-pipelines.yml", "jenkinsfile", "bitbucket-pipelines.yml",
-                       "build.bazel", "workspace.bazel", "module.bazel", "flake.nix"},
+                       "build.bazel", "workspace.bazel", "module.bazel", "module.bazel.lock",
+                       "flake.nix", "flake.lock"},
     "instructions": {"skill.md", "claude.md", "agents.md", "gemini.md", "copilot-instructions.md", ".cursorrules"},
 }
 
@@ -128,27 +129,45 @@ def _env_command(words: list[str]) -> list[str]:
             while rest and "=" in rest[0] and not rest[0].startswith("="):
                 rest = rest[1:]
             return rest
-        if (part in {"-S", "--split-string"}
-                or part.startswith(("--split-string=", "-S"))
-                or re.fullmatch(r"-[iv0]+S", part)):
-            # The -S/--split-string argument may be attached using =, directly
-            # to -S, or carried in the following words (the kernel may send
-            # the rest of a shebang as a single argument). Parse it once, then
-            # resume scanning so env options inside the split string are handled.
+        split_cluster = re.fullmatch(r"-[iv0]*S(.*)", part)
+        if (part == "--split-string" or part.startswith("--split-string=")
+                or split_cluster is not None):
+            # shebang_ref has *already* shlex-tokenized the line. Joining and
+            # splitting all remaining words again destroys quoted values:
+            # LABEL='x node' becomes two words, and "node" is misidentified
+            # as the interpreter instead of the following "python3".
             if part.startswith("--split-string="):
                 prefix = part.partition("=")[2]
-            elif part.startswith("-S") and part != "-S":
-                prefix = part[2:]
+            elif split_cluster is not None:
+                prefix = split_cluster.group(1)
             else:
                 prefix = ""
-            split_text = " ".join(([prefix] if prefix else []) + words[i + 1:])
-            if not split_text:
-                return []
+
+            # A command plus its arguments may have been quoted as one word
+            # (env -S 'python3 -u'). Split that *one* word, not every already
+            # parsed assignment. If it starts with NAME= and has no quotes
+            # left, the space belongs to the assignment value.
+            def split_chunk(chunk: str) -> list[str]:
+                if not chunk:
+                    return []
+                if (" " not in chunk and "\t" not in chunk
+                        and "'" not in chunk and '"' not in chunk):
+                    return [chunk]
+                if (re.match(r"^[A-Za-z_][A-Za-z0-9_]*=", chunk)
+                        and "'" not in chunk and '"' not in chunk):
+                    return [chunk]
+                return shlex.split(chunk)
+
             try:
-                split_words = shlex.split(split_text)
+                if prefix:
+                    words = words[:i] + split_chunk(prefix) + words[i + 1:]
+                else:
+                    i += 1
+                    if i >= len(words):
+                        return []
+                    words = words[:i] + split_chunk(words[i]) + words[i + 1:]
             except ValueError:
                 return []
-            words = words[:i] + split_words
         elif part in no_value:
             i += 1
         elif part in with_value:
