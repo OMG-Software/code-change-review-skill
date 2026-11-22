@@ -24,7 +24,8 @@ skills/code-change-review/
 │       ├── swift.md
 │       ├── sql.md                # SQL, embedded queries, and migrations in any framework
 │       ├── shell.md              # Bash/sh, PowerShell, Batch
-│       └── infrastructure.md     # Docker, Terraform, Kubernetes/Helm, CI workflows
+│       ├── infrastructure.md     # Docker, Terraform, Kubernetes/Helm, CI workflows
+│       └── instructions.md       # skills, agent prompts, CLAUDE.md: Markdown a model follows
 └── scripts/
     └── detect_languages.py       # changed files -> reference files to load
 ```

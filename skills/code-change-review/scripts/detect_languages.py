@@ -62,20 +62,27 @@ FILENAMES: dict[str, set[str]] = {
     "swift": {"package.swift", "package.resolved", "podfile"},
     "infrastructure": {"dockerfile", "containerfile", ".dockerignore", "chart.yaml", "values.yaml", "kustomization.yaml",
                        ".gitlab-ci.yml", "azure-pipelines.yml", "jenkinsfile", "bitbucket-pipelines.yml"},
+    "instructions": {"skill.md", "claude.md", "agents.md", "gemini.md", "copilot-instructions.md", ".cursorrules"},
 }
+
+YAML = frozenset({".yml", ".yaml"})
+MARKDOWN = frozenset({".md", ".mdc"})
 
 # Location-based rules for files whose type depends on where they live. Each label is
 # the rule itself (not a description of a regex), and the SKILL.md table must list it
 # verbatim, so the fallback table and the detector can't drift apart:
 #   "dir/"  -> any file under a directory of that name (or that subpath), at any depth
 #   "glob*" -> a basename glob (fnmatch, lowercase)
-# (reference, labels, yaml_only) - yaml_only restricts the rule to .yml/.yaml files.
-PATH_RULES: list[tuple[str, tuple[str, ...], bool]] = [
-    ("sql", ("migration/", "migrations/", "migrate/", "alembic/versions/", "flyway/", "liquibase/"), False),
+# (reference, labels, only_exts) - only_exts, when set, restricts the rule to files with
+# those extensions (YAML under k8s/, Markdown under skills/); None matches any file.
+PATH_RULES: list[tuple[str, tuple[str, ...], frozenset[str] | None]] = [
+    ("sql", ("migration/", "migrations/", "migrate/", "alembic/versions/", "flyway/", "liquibase/"), None),
     ("infrastructure", (".github/workflows/", ".github/actions/", "k8s/", "kubernetes/", "helm/", "charts/",
-                        "manifests/", "deploy/", "deployment/", "kustomize/", "argocd/"), True),
+                        "manifests/", "deploy/", "deployment/", "kustomize/", "argocd/"), YAML),
     ("infrastructure", (".circleci/", "dockerfile*", "compose*.yml", "compose*.yaml",
-                        "docker-compose*.yml", "docker-compose*.yaml"), False),
+                        "docker-compose*.yml", "docker-compose*.yaml"), None),
+    # Markdown a model follows as instructions. Not every .md: a README or docs/ page is prose.
+    ("instructions", ("skills/", ".claude/", "prompts/", "agents/", ".cursor/rules/"), MARKDOWN),
 ]
 
 # Shebang interpreter (basename, version suffix stripped) -> reference, for extensionless scripts.
@@ -150,9 +157,8 @@ def classify(path: str, abs_path: Path | None = None,
     for ref, exts in EXTENSIONS.items():
         if ext in exts:
             add(ref)
-    is_yaml = ext in {".yml", ".yaml"}
-    for ref, labels, yaml_only in PATH_RULES:
-        if (is_yaml or not yaml_only) and any(_path_rule_matches(lb, lower, name) for lb in labels):
+    for ref, labels, only_exts in PATH_RULES:
+        if (only_exts is None or ext in only_exts) and any(_path_rule_matches(lb, lower, name) for lb in labels):
             add(ref)
     # Probe extensionless files even when a path rule already matched: an extensionless
     # Python script under migrations/ needs python.md as well as sql.md.

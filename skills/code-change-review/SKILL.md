@@ -77,6 +77,7 @@ It prints the reference files to read and which changed files triggered each one
 | `.sql`, `.psql`, `.pgsql`, `.ddl`, and any file under `migration/`, `migrations/`, `migrate/`, `alembic/versions/`, `flyway/`, `liquibase/` | `references/languages/sql.md` |
 | `.sh`, `.bash`, `.zsh`, `.ksh`, `.fish`, `.ps1`, `.psm1`, `.psd1`, `.bat`, `.cmd` | `references/languages/shell.md` |
 | `.tf`, `.tfvars`, `.hcl`, `.dockerfile`, `Dockerfile`, `Dockerfile*`, `Containerfile`, `.dockerignore`, `compose*.yml`, `compose*.yaml`, `docker-compose*.yml`, `docker-compose*.yaml`, `Chart.yaml`, `values.yaml`, `kustomization.yaml`, `.gitlab-ci.yml`, `azure-pipelines.yml`, `bitbucket-pipelines.yml`, `Jenkinsfile`, any file under `.circleci/`, and YAML under `.github/workflows/`, `.github/actions/`, `k8s/`, `kubernetes/`, `helm/`, `charts/`, `manifests/`, `deploy/`, `deployment/`, `kustomize/`, `argocd/` | `references/languages/infrastructure.md` |
+| `SKILL.md`, `CLAUDE.md`, `AGENTS.md`, `GEMINI.md`, `copilot-instructions.md`, `.cursorrules`, and Markdown (.md, .mdc) under `skills/`, `.claude/`, `prompts/`, `agents/`, `.cursor/rules/` | `references/languages/instructions.md` |
 
 A file with no extension routes by the interpreter on its shebang line (`#!/usr/bin/env deno`, `#!/usr/bin/python3`). Version suffixes are ignored.
 
