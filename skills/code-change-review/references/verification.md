@@ -107,7 +107,7 @@ Repository: <absolute path to the checkout, or owner/repo for a remote PR>
 Change under review: <how to see it, e.g. `git diff <merge-base>..refs/review/pr-123`,
   files read with `git show refs/review/pr-123:<path>`; or `gh pr diff <url>`>
 What the change is meant to do: <one or two lines from the PR description or commits>
-Finding: <the claim in one sentence, stated as what goes wrong>
+Finding: <the claim in one sentence: what goes wrong, what it costs, or the question>
 Location: <file:line, plus any other file:line the claim names>
 
 Work read-only: don't edit files, switch branches, check out the PR or post anything.
@@ -129,8 +129,12 @@ You may run a test, the type checker or a small script when that is cheap and sa
    - refuted: the file:line, doc section or command output that shows a fact the
      claim depends on is false, and which fact.
    - holds: you tried and failed to disprove it. List what you checked, with
-     citations, and give a concrete input or state that triggers the failure.
+     citations. For a defect, give a concrete input or state that triggers the
+     failure. For a quality finding (duplication, convention, design), cite what
+     makes the cost real, such as the existing helper or the convention it breaks.
    - unsettled: the fact you could not settle, and why.
+If the finding is a question, try to answer it: refuted if the answer shows there
+is no problem, holds if it shows the problem is real, unsettled if you can't tell.
 A refutation needs a citation that contradicts the claim, just as the finding needs
 one to stand. Don't refute on a hunch, and don't confirm on one either.
 ```
@@ -139,6 +143,8 @@ one to stand. Don't refute on a hunch, and don't confirm on one either.
 
 - **`refuted`:** read the citation and the fact the verifier says is false. Drop the finding when the citation shows that fact is false *and* the claim depends on that fact on the path the claim is about. Check only those two things. Don't argue your way back to the finding past them; finding a reason the refutation "doesn't really apply" is the same mistake as explaining away a passing test. The refutation fails either check if the citation is wrong (the line doesn't exist or plainly says something else), or if it is accurate but about a fact the claim doesn't rest on: a guard on a different entrypoint, or validation of a different property. Then don't keep the finding on your own say-so. Start one more fresh verifier with the same brief plus the disputed citation, ask whether that citation contradicts the claim, and accept its verdict.
 - **`unsettled`:** settle the named fact yourself if your tools reach it. If it shows the finding is wrong, drop it. If it supports the finding, start one more fresh verifier with the same brief plus where that fact is settled (`file:line`, doc section or command), and use its verdict in place of the first. If the fact is genuinely out of reach, the finding is at best Plausible and names that fact. Otherwise drop it.
+- **At most one extra verifier per finding.** The one started from `refuted` or `unsettled` gives the final verdict; never start a third. If it returns `unsettled`, the finding is Plausible when that fact is genuinely out of reach, and dropped otherwise.
+- **Questions:** a `holds` answer turns the question into a finding with the verifier's evidence. `unsettled` keeps it as a question. `refuted` drops it.
 - **`holds`:** report it. If the verifier's failure scenario differs from yours, check yours again: the bug may be real but your explanation wrong, and the author should get the one that is right.
 
 ### Without subagents
