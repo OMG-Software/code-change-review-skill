@@ -73,6 +73,12 @@ if amount > order.balance:
 ```
 ````
 
+## Change-set integrity and publication guard
+
+Before giving an unqualified merge verdict, reconcile the diff file list with the provider's reported changed-file count and account for any missing/truncated, binary, submodule or LFS content. State the coverage: files fully reviewed, skimmed and unavailable. If material cannot be retrieved, say "Incomplete review" and do not claim the PR is safe to merge.
+
+For PR publication, preserve the `reviewed_head_sha` and `reviewed_base_sha` recorded before inspection. **Immediately before POST**, re-read `headRefOid` and `baseRefOid` from the same repository and PR. If either differs, **do not submit the review**: the code or comparison basis has changed. Re-review the affected revision, regenerate line anchors, and reverify findings. Use `reviewed_head_sha` as `commit_id`, never the newly retrieved SHA. A preflight check cannot eliminate a race after the check; if the host supports conditional publication or a bot queue, enforce revision matching there as well, and report staleness if the server rejects the anchor.
+
 ## Text report template
 
 ```markdown
@@ -80,9 +86,11 @@ if amount > order.balance:
 
 **Verdict:** <Ready to merge | Merge after fixes | Needs rework>. <One sentence on the most important issue, or why it's clean.>
 
-**Scope:** <what was reviewed, e.g. "PR #123 (feature/x → main), 14 files, +420/-85">. Languages: <list>.
+**Scope:** <what was reviewed, e.g. "PR #123 (feature/x → main), 14 files, +420/-85">. Languages: <list>. PR snapshots: <reviewed_head_sha>, <reviewed_base_sha>.
 
-**Verification:** <"N findings checked by fresh verifiers; M refuted and dropped." | "Not independently verified: <reason, e.g. no subagents available>.">
+**Coverage:** <N fully inspected, N skimmed, N unavailable; any truncated or binary files and known gaps>.
+
+**Verification:** <mode and safe checks run>; <"N findings checked by fresh verifiers; M refuted and dropped." | "Not independently verified: <reason, e.g. no subagents available>.">
 
 ### Findings
 
@@ -102,14 +110,14 @@ if amount > order.balance:
 
 ## Posting comments on a pull request
 
-Post only when the user asks. Submit everything as **one review**, so the author gets a single notification and the comments arrive together:
+Post only when requested by the user or enabled in an explicitly authorized review bot. Submit everything as **one review**, so the author gets a single notification and the comments arrive together:
 
-1. Get the head commit from the PR's own repository: `gh pr view <pr-url> --json headRefOid --jq .headRefOid`, or `gh pr view <n> --repo <owner>/<repo> …`. A bare number resolves against the current repository, which may be a different one. Use the same `<owner>/<repo>` in step 3.
+1. Use the **pinned review snapshot**, not an updated HEAD: `reviewed_head_sha` and `reviewed_base_sha`. Just before posting, query `gh pr view <pr-url> --json headRefOid,baseRefOid` (or `gh pr view <n> --repo <owner>/<repo> …`), require both SHAs to match, and abort/re-review if either changed. A bare number can resolve against the wrong repository.
 2. Write the review to a JSON file (comment bodies contain backticks and newlines, so don't pass them on the command line):
 
    ```json
    {
-     "commit_id": "<head sha>",
+     "commit_id": "<reviewed_head_sha>",
      "event": "COMMENT",
      "body": "<verdict line, scope, and any findings that can't be anchored to a diff line>",
      "comments": [

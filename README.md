@@ -23,11 +23,13 @@ skills/code-change-review/
 │       ├── php.md
 │       ├── swift.md
 │       ├── sql.md                # SQL, embedded queries, and migrations in any framework
+│       ├── schemas.md            # Protocol Buffers, GraphQL and Prisma schema changes
 │       ├── shell.md              # Bash/sh, PowerShell, Batch
 │       ├── infrastructure.md     # Docker, Terraform, Kubernetes/Helm, CI workflows
 │       └── instructions.md       # skills, agent prompts, CLAUDE.md: Markdown a model follows
-└── scripts/
-    └── detect_languages.py       # changed files -> reference files to load
+├── scripts/
+│   └── detect_languages.py       # changed files -> reference files to load
+└── ...                            # see tests/ and evals/ at repository root
 ```
 
 ## How language loading works
