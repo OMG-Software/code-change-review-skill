@@ -23,6 +23,7 @@ import fnmatch
 import json
 import os
 import re
+import shlex
 import subprocess
 import sys
 from pathlib import Path, PurePosixPath
@@ -45,7 +46,8 @@ EXTENSIONS: dict[str, set[str]] = {
     "swift": {".swift", ".pbxproj"},
     "sql": {".sql", ".psql", ".pgsql", ".ddl"},
     "shell": {".sh", ".bash", ".zsh", ".ksh", ".fish", ".ps1", ".psm1", ".psd1", ".bat", ".cmd"},
-    "infrastructure": {".tf", ".tfvars", ".hcl", ".dockerfile"},
+    "infrastructure": {".tf", ".tfvars", ".hcl", ".dockerfile", ".nix", ".bzl"},
+    "schemas": {".proto", ".graphql", ".gql", ".graphqls", ".prisma"},
 }
 
 # Exact (lowercase) basenames that identify a file type regardless of extension.
@@ -61,8 +63,16 @@ FILENAMES: dict[str, set[str]] = {
     "php": {"composer.json", "composer.lock"},
     "swift": {"package.swift", "package.resolved", "podfile"},
     "infrastructure": {"dockerfile", "containerfile", ".dockerignore", "chart.yaml", "values.yaml", "kustomization.yaml",
-                       ".gitlab-ci.yml", "azure-pipelines.yml", "jenkinsfile", "bitbucket-pipelines.yml"},
+                       ".gitlab-ci.yml", "azure-pipelines.yml", "jenkinsfile", "bitbucket-pipelines.yml",
+                       "build.bazel", "workspace.bazel", "module.bazel", "module.bazel.lock",
+                       "flake.nix", "flake.lock"},
     "instructions": {"skill.md", "claude.md", "agents.md", "gemini.md", "copilot-instructions.md", ".cursorrules"},
+}
+
+# Bazel recognizes uppercase BUILD / WORKSPACE (and their .bazel variants).
+# Lowercase "build" or "workspace" is commonly an unrelated executable/file.
+CASE_SENSITIVE_FILENAMES: dict[str, set[str]] = {
+    "infrastructure": {"BUILD", "WORKSPACE"},
 }
 
 YAML = frozenset({".yml", ".yaml"})
@@ -80,7 +90,7 @@ PATH_RULES: list[tuple[str, tuple[str, ...], frozenset[str] | None]] = [
     ("infrastructure", (".github/workflows/", ".github/actions/", "k8s/", "kubernetes/", "helm/", "charts/",
                         "manifests/", "deploy/", "deployment/", "kustomize/", "argocd/"), YAML),
     ("infrastructure", (".circleci/", "dockerfile*", "compose*.yml", "compose*.yaml",
-                        "docker-compose*.yml", "docker-compose*.yaml"), None),
+                        "docker-compose*.yml", "docker-compose*.yaml", "*.tf.json", "*.tfvars.json"), None),
     # Markdown a model follows as instructions. Not every .md: a README or docs/ page is prose.
     ("instructions", ("skills/", ".claude/", "prompts/", "agents/", ".cursor/rules/"), MARKDOWN),
 ]
@@ -101,13 +111,100 @@ def _path_rule_matches(label: str, lower_path: str, name: str) -> bool:
     return fnmatch.fnmatchcase(name, label)
 
 
+def _env_command(words: list[str], raw_words: list[str] | None = None) -> list[str]:
+    """Return the command after env options/assignments, never option arguments.
+
+    A skipped -u/--unset or -C/--chdir argument may look like an interpreter.
+    Unknown options are not guessed: leave the file unmapped for manual review.
+    """
+    # Keep original spellings: shlex has already removed quotes from words,
+    # but env -S must split the *raw* command to preserve quoted assignments.
+    if raw_words is None:
+        raw_words = words[:]
+    i = 0
+    no_value = {"-", "-i", "--ignore-environment", "-0", "--null", "-v", "--debug"}
+    with_value = {"-u", "--unset", "-C", "--chdir"}
+    while i < len(words):
+        part = words[i]
+        if part == "--":
+            # Option parsing ends here, but env still consumes NAME=VALUE
+            # assignments before it executes the first command operand.
+            rest = words[i + 1:]
+            while rest and "=" in rest[0] and not rest[0].startswith("="):
+                rest = rest[1:]
+            return rest
+        split_cluster = re.fullmatch(r"-[iv0]*S(.*)", part)
+        if (part == "--split-string" or part.startswith("--split-string=")
+                or split_cluster is not None):
+            # Parse the original -S string, before quotes were removed.
+            # Re-tokenizing decoded words would split LABEL='x node' into
+            # LABEL=x and node, potentially routing to the wrong language.
+            original_option = raw_words[i]
+            if part.startswith("--split-string="):
+                prefix = original_option.partition("=")[2]
+            elif split_cluster is not None:
+                raw_cluster = re.fullmatch(r"-[iv0]*S(.*)", original_option)
+                prefix = (raw_cluster.group(1) if raw_cluster is not None
+                          else split_cluster.group(1))
+            else:
+                prefix = ""
+            split_text = " ".join(([prefix] if prefix else []) + raw_words[i + 1:])
+            if not split_text:
+                return []
+            try:
+                split_words = shlex.split(split_text)
+                # Kernel shebang arguments may quote the entire -S command.
+                # In that case treat the single resulting string as a command
+                # string, e.g. 'FOO=bar python3 -u', rather than one assignment.
+                if len(split_words) == 1 and any(ch.isspace() for ch in split_words[0]):
+                    split_words = shlex.split(split_words[0])
+            except ValueError:
+                return []
+            words = words[:i] + split_words
+            raw_words = raw_words[:i] + split_words
+        elif part in no_value:
+            i += 1
+        elif part in with_value:
+            if i + 1 >= len(words):
+                return []
+            i += 2
+        elif part.startswith(("--unset=", "--chdir=")) or (part.startswith(("-u", "-C")) and len(part) > 2):
+            i += 1
+        elif part.startswith("-"):
+            return []
+        elif "=" in part:
+            if part.startswith("="):
+                return []
+            i += 1
+        else:
+            return words[i:]
+    return []
+
+
 def shebang_ref(first_line: str) -> str | None:
     """'#!/usr/bin/env -S deno run' -> 'javascript-typescript'; '#!/usr/bin/python3.12' -> 'python'."""
     if not first_line.startswith("#!"):
         return None
-    words = first_line[2:].split()
+    try:
+        source = first_line[2:].strip()
+        lexer = shlex.shlex(source, posix=True)
+        lexer.whitespace_split = True
+        lexer.commenters = ""
+        words: list[str] = []
+        raw_words: list[str] = []
+        start = 0
+        while True:
+            token = lexer.get_token()
+            if token is None:
+                break
+            end = lexer.instream.tell()
+            words.append(token)
+            raw_words.append(source[start:end].strip())
+            start = end
+    except ValueError:
+        return None
     if words and PurePosixPath(words[0]).name == "env":
-        words = [w for w in words[1:] if not w.startswith("-") and "=" not in w]
+        words = _env_command(words[1:], raw_words[1:])
     if not words:
         return None
     interpreter = re.sub(r"[\d.]+$", "", PurePosixPath(words[0]).name.lower())
@@ -153,6 +250,9 @@ def classify(path: str, abs_path: Path | None = None,
 
     for ref, names in FILENAMES.items():
         if name in names:
+            add(ref)
+    for ref, names in CASE_SENSITIVE_FILENAMES.items():
+        if posix.name in names:
             add(ref)
     for ref, exts in EXTENSIONS.items():
         if ext in exts:
@@ -333,8 +433,23 @@ def resolve_inputs(paths: list[str], first_base: Path, other_base: Path, repo_ro
         found: Path | None = None
         for base in (first_base, other_base):
             candidate = base / p_norm
+            # A changed symlink (including one through a symlinked directory) must
+            # not make a language scan read an arbitrary file outside the repo.
+            if candidate.is_symlink():
+                selected = candidate
+                try:
+                    target = candidate.resolve(strict=True)
+                    # Only read actual files within this repository, but keep
+                    # routing safe in-repo links (e.g. tool -> scripts/tool.py).
+                    if target.is_relative_to(root) and target.is_file():
+                        found = target
+                except (OSError, RuntimeError):
+                    pass  # dangling, inaccessible or cyclic symlink
+                break
             if candidate.is_file():
-                selected, found = candidate, candidate.resolve()
+                selected = candidate
+                target = candidate.resolve()
+                found = target if target.is_relative_to(root) else None
                 break
         try:
             rel = _without_final_symlink(selected).relative_to(root).as_posix()
@@ -403,7 +518,8 @@ def check() -> int:
     references that don't exist.
     """
     problems: list[str] = []
-    mapped = set(EXTENSIONS) | set(FILENAMES) | {ref for ref, _, _ in PATH_RULES} | set(SHEBANGS)
+    mapped = (set(EXTENSIONS) | set(FILENAMES) | set(CASE_SENSITIVE_FILENAMES)
+              | {ref for ref, _, _ in PATH_RULES} | set(SHEBANGS))
     present = {p.stem for p in LANG_DIR.glob("*.md")}
     table = parse_routing_table((SKILL_DIR / "SKILL.md").read_text(encoding="utf-8"))
     tabled = set(table)
@@ -423,6 +539,7 @@ def check() -> int:
         path_labels.setdefault(ref, set()).update(labels)
     for ref in sorted(tabled & mapped):
         rules = (EXTENSIONS.get(ref, set()) | FILENAMES.get(ref, set())
+                 | {name.lower() for name in CASE_SENSITIVE_FILENAMES.get(ref, set())}
                  | path_labels.get(ref, set()) | SHEBANGS.get(ref, set()))
         missing = sorted(rules - table[ref])
         if missing:

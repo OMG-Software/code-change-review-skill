@@ -73,16 +73,31 @@ if amount > order.balance:
 ```
 ````
 
+## Change-set integrity and publication guard
+
+Before giving an unqualified merge verdict, reconcile the diff file list with the provider's reported changed-file count and account for any missing/truncated, binary, submodule or LFS content. State the coverage: files fully reviewed, skimmed and unavailable. If material cannot be retrieved, set the verdict to **Incomplete review**, list the missing material, and do not claim the PR is safe to merge. This verdict takes precedence over any otherwise-positive merge assessment.
+
+For PR publication, preserve `reviewed_head_sha`, `reviewed_base_sha` and **`reviewed_merge_base_sha`** (the actual comparison commit used to produce the reviewed diff). **Immediately before POST**, run:
+
+```bash
+python <skill-dir>/scripts/check_pr_revision.py --repo <owner/repo> --pr <n> \
+  --reviewed-head <head-sha> --reviewed-base <base-sha> --reviewed-merge-base <merge-base-sha>
+```
+
+The helper requires an unchanged head. If only the base tip advanced, it queries GitHub's compare API for `merge_base_commit.sha` and accepts the review **only if the merge-base remains identical**; it rechecks the PR refs to detect a base move during that query. A changed merge-base, absent response, inaccessible fork commit or timed-out query stops publication. An unrelated base advance with the *same* merge-base leaves the reviewed diff intact, but new base code can still affect integration compatibility. For high-stakes reviews whose conclusions depend on base-branch context, add `--strict-base` to reject **any** base-tip movement. On failure, re-review the affected revision, regenerate line anchors and reverify findings. Use `reviewed_head_sha` as `commit_id`, never the latest SHA. A preflight check cannot eliminate the race after it; enforce revision matching in the host's posting queue when possible and report staleness if the server rejects an anchor.
+
 ## Text report template
 
 ```markdown
 ## Review: <short description of the change>
 
-**Verdict:** <Ready to merge | Merge after fixes | Needs rework>. <One sentence on the most important issue, or why it's clean.>
+**Verdict:** <Ready to merge | Merge after fixes | Needs rework | Incomplete review>. <One sentence on the most important issue, why it's clean, or which material was unavailable. Use Incomplete review when change-set coverage cannot be established.>
 
-**Scope:** <what was reviewed, e.g. "PR #123 (feature/x → main), 14 files, +420/-85">. Languages: <list>.
+**Scope:** <what was reviewed, e.g. "PR #123 (feature/x → main), 14 files, +420/-85">. Languages: <list>. PR snapshots: <reviewed_head_sha>, <reviewed_base_sha>, <reviewed_merge_base_sha>.
 
-**Verification:** <"N findings checked by fresh verifiers; M refuted and dropped." | "Not independently verified: <reason, e.g. no subagents available>.">
+**Coverage:** <N fully inspected, N skimmed, N unavailable; any truncated or binary files and known gaps>.
+
+**Verification:** <mode and safe checks run>; <"N findings checked by fresh verifiers; M refuted and dropped." | "Not independently verified: <reason, e.g. no subagents available>.">
 
 ### Findings
 
@@ -102,14 +117,14 @@ if amount > order.balance:
 
 ## Posting comments on a pull request
 
-Post only when the user asks. Submit everything as **one review**, so the author gets a single notification and the comments arrive together:
+Post only when requested by the user or enabled in an explicitly authorized review bot. Submit everything as **one review**, so the author gets a single notification and the comments arrive together:
 
-1. Get the head commit from the PR's own repository: `gh pr view <pr-url> --json headRefOid --jq .headRefOid`, or `gh pr view <n> --repo <owner>/<repo> …`. A bare number resolves against the current repository, which may be a different one. Use the same `<owner>/<repo>` in step 3.
+1. Use the **pinned review snapshot**, not an updated HEAD: record head, base tip, and comparison merge-base. A bare PR number can resolve against the wrong repository; pass `--repo` explicitly.
 2. Write the review to a JSON file (comment bodies contain backticks and newlines, so don't pass them on the command line):
 
    ```json
    {
-     "commit_id": "<head sha>",
+     "commit_id": "<reviewed_head_sha>",
      "event": "COMMENT",
      "body": "<verdict line, scope, and any findings that can't be anchored to a diff line>",
      "comments": [
@@ -119,7 +134,8 @@ Post only when the user asks. Submit everything as **one review**, so the author
    }
    ```
 
-3. Submit it: `gh api repos/<owner>/<repo>/pulls/<n>/reviews --method POST --input review.json`.
+3. **Immediately before POST**, run the revision guard described above using the recorded head, base, and merge-base. Require an unchanged reviewed head and comparison basis (or unchanged base tip in `--strict-base` mode). Abort and re-review if it fails. Do not edit the payload or perform additional file inspection between this check and publishing.
+4. Submit it: `gh api repos/<owner>/<repo>/pulls/<n>/reviews --method POST --input review.json`.
 
 - `line` must be on a line in the PR's diff (`RIGHT` for the new version, `LEFT` for deleted lines). A finding about code outside the diff goes in the review `body` in the same tag-first format.
 - Use `"event": "COMMENT"` unless the user asks you to approve or request changes.
