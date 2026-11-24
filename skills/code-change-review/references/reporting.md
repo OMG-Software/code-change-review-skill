@@ -12,7 +12,7 @@ Severity is a priority rank from `[P1]` (most severe) to `[P5]` (least severe), 
 | `[P2] MAJOR` | Wrong behaviour that users or operators will hit, or a serious risk under realistic conditions. Fix before merging. | Race causing duplicate charges, unhandled error on a common path, breaking API change, N+1 on a hot endpoint |
 | `[P3] MINOR (Defect)` | Wrong behaviour in edge cases or uncommon conditions, with limited impact. Fix in this change; need not block the merge. | Missing timeout, edge-case off-by-one, error swallowed on a rare path |
 | `[P4] MINOR (Quality)` | No wrong behaviour today, but a real maintainability or operability cost, or a clear improvement with small impact. Fix when convenient. | Missing test for new logic that works, wrong-altitude fix, misleading log message, small duplication, avoidable complexity |
-| `[P5] NIT` | Style or taste; no behavioural effect. In a report a person reads, count rather than list them unless there are no real defects or the user asked for a thorough pass. When a host sets the output, report them if its severity threshold reaches `[P5]` or it sets none. | Formatting the linter missed, naming, wording |
+| `[P5] NIT` | Style or taste; no behavioural effect. In a report a person reads, count rather than list them unless there are no real defects or the user asked for a thorough pass. When a host sets the output, report them if its severity threshold reaches `[P5]` or it sets none. When you post to a pull request yourself, unattended and with no threshold configured, leave them out (`references/verification.md`). | Formatting the linter missed, naming, wording |
 
 `[P1]` and `[P2]` block the merge; `[P3]` to `[P5]` do not.
 
