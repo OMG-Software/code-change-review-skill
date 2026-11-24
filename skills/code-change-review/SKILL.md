@@ -5,7 +5,7 @@ description: Review a code change (local diff, staged changes, branch, commit ra
 
 # Code Change Review
 
-Review a change the way a strong senior engineer would: find the defects that matter, prove each one, and report them so the author can act quickly. A short review with three real bugs beats a long one with thirty maybes, because every false positive teaches the reader to skim. That is a bar on evidence, not on effort: find every defect the change introduces in one review, then report only the ones you can prove. A second review of unchanged code should not turn up anything the first one could have found.
+Review a change the way a strong senior engineer would: find the defects that matter, prove each one, and report them so the author can act quickly. A short review with three real bugs beats a long one with thirty maybes, because every false positive teaches the reader to skim. That is a bar on evidence, not on effort: find every defect the change introduces in one review, then report only the ones the evidence supports: Confirmed findings, and Plausible ones that name the deciding fact you could not reach (step 5 has the grades, and `references/verification.md` the stricter rule for unattended posting). A second review of unchanged code should not turn up anything the first one could have found.
 
 ## Workflow
 
@@ -124,7 +124,7 @@ Work from the top of this list down. A bug in tier 1 matters more than any numbe
 
 Apply the loaded language file's checks within these angles. They are the specific forms these problems take in that language.
 
-**Exhaust the change before reporting.** Don't stop at the first serious findings. After working through the angles, sweep every changed hunk again and ask what is still wrong that you have not raised; repeat until a sweep adds nothing. Ranking decides the order findings are reported in, not whether lower-ranked ones are looked for. An issue the author first hears about after fixing the earlier ones costs a whole extra review round.
+**Exhaust the change before reporting.** Don't stop at the first serious findings. After working through the angles, sweep every hunk you fully reviewed again and ask what is still wrong that you have not raised; repeat until a sweep adds nothing. Where step 1's triage limited coverage, record the skimmed and unreviewed files in the coverage note rather than claiming a full sweep. In Quick mode, one sweep is enough. Ranking decides the order findings are reported in, not whether lower-ranked ones are looked for. An issue the author first hears about after fixing the earlier ones costs a whole extra review round.
 
 ### 5. Verify every finding before reporting it
 
@@ -146,7 +146,7 @@ Use `references/reporting.md` for the severity tags, the comment format and the 
 - **Every finding starts with its severity label: `[P1] CRITICAL`, `[P2] MAJOR`, `[P3] MINOR (Defect)`, `[P4] MINOR (Quality)` or `[P5] NIT`**, where the `[Pn]` rank comes first and `[P1]` is the most severe, then a one-line claim and its `file:line`. The body explains, in this order, what the issue is, why it is a problem (the concrete failure scenario), and a suggested fix or improvement wherever you can offer one.
 - List findings with the most severe first. In a report a person reads, show about 10 in full and put the remaining verified findings under **Also noted**, one line each.
 - In that report, count `[P5] NIT` findings instead of listing them unless there are no real defects or the user asked for a thorough pass; list them if the user asks.
-- **When a host sets the output** (a review bot, CI job or structured findings tool with its own format, severity threshold or comment limit), those two display limits do not apply. Return every finding that meets the evidence bar and the host's threshold, `[P5] NIT` included, most severe first, and let the host decide what to post. A finding you hold back is lost, and surfaces as "new" in the next review after the author fixes the rest.
+- **When a host sets the output** (a review bot, CI job or structured findings tool with its own format, severity threshold or comment limit), those two display limits do not apply. Return every finding that meets the evidence bar, down to the host's severity threshold, most severe first, and let the host apply any comment limit. Where the host leaves something unset, don't ask (an unattended host has no one to answer): with no severity threshold, report down to `[P5] NIT`; with no format, use `references/reporting.md`. A finding you hold back is lost, and surfaces as "new" in the next review after the author fixes the rest.
 - Say how the findings were verified: review mode, number sent to fresh verifiers, refutations, and any lack of independent verification.
 - End with explicit coverage (files fully reviewed / skimmed / unavailable), checks run safely, and what you did *not* cover. An honest scope note is part of the review.
 
