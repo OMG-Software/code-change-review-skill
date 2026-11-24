@@ -12,7 +12,7 @@ Severity is a priority rank from `[P1]` (most severe) to `[P5]` (least severe), 
 | `[P2] MAJOR` | Wrong behaviour that users or operators will hit, or a serious risk under realistic conditions. Fix before merging. | Race causing duplicate charges, unhandled error on a common path, breaking API change, N+1 on a hot endpoint |
 | `[P3] MINOR (Defect)` | Wrong behaviour in edge cases or uncommon conditions, with limited impact. Fix in this change; need not block the merge. | Missing timeout, edge-case off-by-one, error swallowed on a rare path |
 | `[P4] MINOR (Quality)` | No wrong behaviour today, but a real maintainability or operability cost, or a clear improvement with small impact. Fix when convenient. | Missing test for new logic that works, wrong-altitude fix, misleading log message, small duplication, avoidable complexity |
-| `[P5] NIT` | Style or taste; no behavioural effect. Omit unless there are no real defects, or the user asked for a thorough pass. | Formatting the linter missed, naming, wording |
+| `[P5] NIT` | Style or taste; no behavioural effect. In a report a person reads, count rather than list them unless there are no real defects or the user asked for a thorough pass. When a host sets the output, report them if its severity threshold reaches `[P5]` or it sets none. When you post to a pull request yourself, unattended and with no threshold configured, leave them out (`references/verification.md`). | Formatting the linter missed, naming, wording |
 
 `[P1]` and `[P2]` block the merge; `[P3]` to `[P5]` do not.
 
@@ -53,6 +53,7 @@ Use this for every finding, in reports and on PRs alike:
 - **Suggest a fix whenever you can.** Keep it minimal and in the codebase's style. If several fixes are reasonable, give the one you'd pick and name the trade-off in a sentence. If you can't propose one, replace the fix section with **Next step:** saying what to check or decide, or ask a question.
 - **One defect per comment.** If the same bug appears in five places, make one finding that lists the locations (on a PR, comment on the first and list the rest).
 - **Pre-existing problems** add `(pre-existing)` after the full label, for example `[P3] MINOR (Defect) (pre-existing) …`, and only appear if the change depends on them or makes them worse.
+- **Self-checked findings** posted past the unattended verifier-run budget (`references/verification.md`) add `(self-checked)` after the full label the same way, for example `[P4] MINOR (Quality) (self-checked) …`. Where a host's format keeps the label in a separate field, follow that format and put `(self-checked)` wherever it allows: at the start of the title, or else at the start of the body. Never drop the marker.
 - **Questions are fine** when a finding hinges on something you can't see: `[P2] MAJOR Can user_id be null here?` followed by what breaks if it can.
 
 Example:
@@ -97,7 +98,7 @@ The helper requires an unchanged head. If only the base tip advanced, it queries
 
 **Coverage:** <N fully inspected, N skimmed, N unavailable; any truncated or binary files and known gaps>.
 
-**Verification:** <mode and safe checks run>; <"N findings checked by fresh verifiers; M refuted and dropped." | "Not independently verified: <reason, e.g. no subagents available>.">
+**Verification:** <mode and safe checks run>; <"N findings checked by fresh verifiers; M refuted and dropped." | "N findings checked by fresh verifiers; M refuted and dropped; K self-checked only, past the verifier-run budget." | "Not independently verified: <reason, e.g. no subagents available>.">
 
 ### Findings
 
@@ -105,7 +106,7 @@ The helper requires an unchanged head. If only the base tip advanced, it queries
 
 ### Also noted
 
-[P3] MINOR (Defect) <lower-severity item held back from the main list: claim and `file:line` on one line>
+[P3] MINOR (Defect) <item held back by the display limit: claim and `file:line` on one line>
 
 [P4] MINOR (Quality) <another held-back item; one per line, most severe first, each starting with its own full label, blank line between them>
 
