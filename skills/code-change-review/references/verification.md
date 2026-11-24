@@ -93,7 +93,7 @@ Each pattern below is a real kind of rejected review comment, with the check tha
 
 Arguing against your own finding (step 3) only goes so far: you re-read the code through the reasoning that produced the finding, and the assumption that made it wrong looks just as reasonable the second time. So once you have drafted every finding and run the procedure above on each, hand each one to an agent whose only job is to disprove it, and who has never seen how you got there.
 
-Independent verification applies to findings selected by the mode above when subagents are available; Deep covers **every finding that will appear in the report**, including held-back "Also noted" items; the only exception is the unattended verifier-run budget in "Posting without a human in the loop". Nits only counted and not reported do not need independent verification.
+Independent verification applies to findings selected by the mode above when subagents are available; Deep covers **every finding that will appear in the report**, including held-back "Also noted" items; the only exception is the verifier-run budget for findings posted without a human in the loop ("Posting without a human in the loop"). A report a person reads gets no budget, even from an unattended run. Nits only counted and not reported do not need independent verification.
 
 ### Who verifies
 

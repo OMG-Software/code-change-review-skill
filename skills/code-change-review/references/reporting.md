@@ -53,7 +53,7 @@ Use this for every finding, in reports and on PRs alike:
 - **Suggest a fix whenever you can.** Keep it minimal and in the codebase's style. If several fixes are reasonable, give the one you'd pick and name the trade-off in a sentence. If you can't propose one, replace the fix section with **Next step:** saying what to check or decide, or ask a question.
 - **One defect per comment.** If the same bug appears in five places, make one finding that lists the locations (on a PR, comment on the first and list the rest).
 - **Pre-existing problems** add `(pre-existing)` after the full label, for example `[P3] MINOR (Defect) (pre-existing) …`, and only appear if the change depends on them or makes them worse.
-- **Self-checked findings** posted past the unattended verifier-run budget (`references/verification.md`) add `(self-checked)` after the full label the same way, for example `[P4] MINOR (Quality) (self-checked) …`. Where a host's format keeps the label separate, start the title with it.
+- **Self-checked findings** posted past the unattended verifier-run budget (`references/verification.md`) add `(self-checked)` after the full label the same way, for example `[P4] MINOR (Quality) (self-checked) …`. Where a host's format keeps the label in a separate field, follow that format and put `(self-checked)` wherever it allows: at the start of the title, or else at the start of the body. Never drop the marker.
 - **Questions are fine** when a finding hinges on something you can't see: `[P2] MAJOR Can user_id be null here?` followed by what breaks if it can.
 
 Example:
