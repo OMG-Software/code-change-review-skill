@@ -105,7 +105,7 @@ The helper requires an unchanged head. If only the base tip advanced, it queries
 
 ### Also noted
 
-[P3] MINOR (Defect) <lower-severity item held back from the main list: claim and `file:line` on one line>
+[P3] MINOR (Defect) <[P3] or [P4] item held back by the display limit: claim and `file:line` on one line>
 
 [P4] MINOR (Quality) <another held-back item; one per line, most severe first, each starting with its own full label, blank line between them>
 
