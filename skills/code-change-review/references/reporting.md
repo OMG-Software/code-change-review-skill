@@ -53,6 +53,7 @@ Use this for every finding, in reports and on PRs alike:
 - **Suggest a fix whenever you can.** Keep it minimal and in the codebase's style. If several fixes are reasonable, give the one you'd pick and name the trade-off in a sentence. If you can't propose one, replace the fix section with **Next step:** saying what to check or decide, or ask a question.
 - **One defect per comment.** If the same bug appears in five places, make one finding that lists the locations (on a PR, comment on the first and list the rest).
 - **Pre-existing problems** add `(pre-existing)` after the full label, for example `[P3] MINOR (Defect) (pre-existing) …`, and only appear if the change depends on them or makes them worse.
+- **Self-checked findings** posted past the unattended verifier budget (`references/verification.md`) add `(self-checked)` after the full label the same way, for example `[P4] MINOR (Quality) (self-checked) …`. Where a host's format keeps the label separate, start the title with it.
 - **Questions are fine** when a finding hinges on something you can't see: `[P2] MAJOR Can user_id be null here?` followed by what breaks if it can.
 
 Example:
@@ -97,7 +98,7 @@ The helper requires an unchanged head. If only the base tip advanced, it queries
 
 **Coverage:** <N fully inspected, N skimmed, N unavailable; any truncated or binary files and known gaps>.
 
-**Verification:** <mode and safe checks run>; <"N findings checked by fresh verifiers; M refuted and dropped." | "Not independently verified: <reason, e.g. no subagents available>.">
+**Verification:** <mode and safe checks run>; <"N findings checked by fresh verifiers; M refuted and dropped." | "N findings checked by fresh verifiers; M refuted and dropped; K self-checked only, past the verifier budget." | "Not independently verified: <reason, e.g. no subagents available>.">
 
 ### Findings
 
