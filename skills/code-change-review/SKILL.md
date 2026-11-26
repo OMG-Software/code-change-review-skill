@@ -53,7 +53,7 @@ Also get the **intent**: the PR description, commit messages, linked issue, or a
 
 **Check change-set completeness before making findings.** Reconcile the files/statuses in the retrieved diff with the PR's reported file count (e.g. `gh pr view --json changedFiles` and paginated `gh api repos/<owner>/<repo>/pulls/<n>/files?per_page=100`). Beware file-list and diff truncation, binary files, submodules and LFS pointers. If any expected file or hunk is unavailable, fetch it another way; otherwise say the diff is incomplete and do not claim comprehensive coverage. For local changes include untracked files and relevant staged/unstaged edits.
 
-For very large changes (more than ~1,500 changed lines), triage first. Rank files by risk (auth, payments, data migrations, concurrency, public APIs, and anything deleted come before docs, generated code and lockfiles). Keep a ledger of files fully reviewed, skimmed and not reviewed; state the coverage in the report. A limited review must not receive an unqualified "ready to merge" verdict.
+For very large changes (more than ~1,500 changed lines), triage first. Rank files by risk (auth, payments, data migrations, concurrency, public APIs, and anything deleted come before docs, generated code and lockfiles). Docs that state the contract of code this change touches (codes, limits, file formats, recovery steps, compatibility) are not low-risk prose: review their claims against that code alongside it. Keep a ledger of files fully reviewed, skimmed and not reviewed; state the coverage in the report. A limited review must not receive an unqualified "ready to merge" verdict.
 
 ### 2. Load language guidance for what the change touches
 
@@ -120,7 +120,7 @@ Work from the top of this list down. A bug in tier 1 matters more than any numbe
 1. **Is it right?** Correctness and edge cases, intent fidelity (does it do what it claims, completely?), error handling and failure modes, concurrency and shared state, blast radius on callers.
 2. **Is it safe to ship?** Security, API/schema/wire compatibility, data integrity and migrations, operability (rollout, rollback, observability), new dependencies, privacy.
 3. **Is it good code?** Performance and efficiency, altitude (is the fix at the right layer?), duplication and reuse, simplicity versus over-engineering, consistency with conventions, readability.
-4. **Is it verified?** Tests that would actually fail without the change, documentation and comments kept in sync.
+4. **Is it verified?** Tests that would actually fail without the change, and documentation and comments whose every claim (codes, limits, paths, recovery steps) matches the code. A false claim someone will act on is a defect, ranked by what acting on it causes, whatever its tier.
 
 Apply the loaded language file's checks within these angles. They are the specific forms these problems take in that language.
 

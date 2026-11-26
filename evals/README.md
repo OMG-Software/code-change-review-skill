@@ -13,7 +13,15 @@ Save adjudicated predictions as JSON:
   "proto-reuse": ["reused-field-tag"],
   "python-parameterized": [],
   "safe-refactor": [],
-  "untrusted-comment": ["review-instruction-injection"]
+  "untrusted-comment": ["review-instruction-injection"],
+  "docs-journal-code": ["doc-names-stale-code"],
+  "docs-recovery-step": ["recovery-misses-archives"],
+  "adapter-arguments": ["adapter-outcome-differs"],
+  "replay-test": ["replay-uses-open-journal"],
+  "docs-limit-accurate": [],
+  "rejection-result": ["fallback-over-limit", "size-advice-wrong-tool"],
+  "event-size-limit": ["old-build-rejects-escaped-message"],
+  "docs-error-layers": []
 }
 ```
 
