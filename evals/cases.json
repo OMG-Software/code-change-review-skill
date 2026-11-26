@@ -129,6 +129,44 @@
       "context": "argument_limit is the only place the argument size limit is chosen; the docs page describes the limits to users.",
       "diff": "--- a/src/tools.rs\n+++ b/src/tools.rs\n const MAX_ARGUMENT_BYTES: usize = 4 * 1024;\n+const MAX_WRITE_ARGUMENT_BYTES: usize = 32 * 1024;\n+\n+fn argument_limit(tool: Tool) -> usize {\n+    match tool {\n+        Tool::CreateFile | Tool::EditFile | Tool::MultiEdit => MAX_WRITE_ARGUMENT_BYTES,\n+        _ => MAX_ARGUMENT_BYTES,\n+    }\n+}\n--- a/docs/file-access.md\n+++ b/docs/file-access.md\n-Each tool call's argument JSON may be at most 4 KiB.\n+The create, edit and multi-edit tools accept up to 32 KiB of argument JSON;\n+every other tool keeps the 4 KiB limit.",
       "expected": []
+    },
+    {
+      "id": "rejection-result",
+      "title": "Recoverable result for rejected tool calls",
+      "language": "rust",
+      "context": "Operators may set result_limit, the largest tool result sent back to the model, as low as 200 bytes; a result over the limit ends the turn. Call IDs may be up to 128 bytes and tool names up to 32. workspace_run_command and the other non-text tools take a 4 KiB argument limit; only create, edit and multi-edit take 32 KiB. rejection_result builds the result for every rejected call.",
+      "diff": "+fn rejection_result(call: &RejectedCall, reason: &Reason, limit: usize) -> String {\n+    let detailed = match reason {\n+        Reason::ArgumentSize { len, max } => format!(\n+            \"{} call {} rejected: arguments are {len} bytes, over the {max}-byte limit. {}\",\n+            call.tool, call.id,\n+            \"Create the file with a short first version, then extend it with edits.\",\n+        ),\n+        other => format!(\"{} call {} rejected: {other}\", call.tool, call.id),\n+    };\n+    if detailed.len() <= limit {\n+        return detailed;\n+    }\n+    // Too long for the configured limit: keep what pairs the result with its call.\n+    format!(\n+        \"Tool call {} to {} was rejected ({}). Fix the call and try again.\",\n+        call.id, call.tool, reason.code(),\n+    )\n+}",
+      "expected": [
+        {
+          "id": "fallback-over-limit",
+          "priority": "P3"
+        },
+        {
+          "id": "size-advice-wrong-tool",
+          "priority": "P3"
+        }
+      ]
+    },
+    {
+      "id": "event-size-limit",
+      "title": "Larger session event limit",
+      "language": "rust",
+      "context": "Builds before 0.63.0 refuse to open a session journal that holds any line over 64 KiB. Each journal line is one serialized event; serde_json writes every control character inside a string as a six-byte \\u00XX escape. Message text is capped before encoding.",
+      "diff": "--- a/src/session.rs\n+++ b/src/session.rs\n-const MAX_EVENT_BYTES: usize = 64 * 1024;\n+const MAX_EVENT_BYTES: usize = 80 * 1024;\n const MAX_MESSAGE_TEXT_BYTES: usize = 12 * 1024;\n--- a/docs/session-storage.md\n+++ b/docs/session-storage.md\n+The event limit is now 80 KiB, to make room for 32 KiB write-tool calls. A\n+journal whose tool calls all fit within 4 KiB still opens in older builds.",
+      "expected": [
+        {
+          "id": "old-build-rejects-escaped-message",
+          "priority": "P3"
+        }
+      ]
+    },
+    {
+      "id": "docs-error-layers",
+      "title": "Duplicate call error code",
+      "language": "rust",
+      "context": "The CLI prints ErrorKind::code() as error.code in its JSON output. The session journal separately records TurnError::journal_code(). A duplicate call identifier is reported as TurnError::InvalidCall, and a call denied by a preference as TurnError::Denied. docs/cli.md describes the CLI's JSON output.",
+      "diff": "--- a/src/error.rs\n+++ b/src/error.rs\n impl From<TurnError> for ErrorKind {\n     fn from(error: TurnError) -> Self {\n         match error {\n             TurnError::Denied(_) => ErrorKind::Permission, // code() is \"permission\"\n+            TurnError::InvalidCall(_) => ErrorKind::ToolCall, // code() is \"tool_call\"\n             TurnError::Limit(_) => ErrorKind::ToolLimit, // code() is \"tool_limit\"\n         }\n     }\n }\n--- a/src/turn.rs\n+++ b/src/turn.rs\n             TurnError::Denied(_) => \"tool_denied\",\n+            TurnError::InvalidCall(_) => \"invalid_tool_call\",\n             TurnError::Limit(_) => \"tool_limit\",\n--- a/docs/cli.md\n+++ b/docs/cli.md\n+A turn that ends on a duplicate call identifier prints `error.code` as\n+`tool_call`; a call denied by a preference prints `permission`.",
+      "expected": []
     }
   ]
 }

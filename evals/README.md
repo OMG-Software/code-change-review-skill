@@ -18,7 +18,10 @@ Save adjudicated predictions as JSON:
   "docs-recovery-step": ["recovery-misses-archives"],
   "adapter-arguments": ["adapter-outcome-differs"],
   "replay-test": ["replay-uses-open-journal"],
-  "docs-limit-accurate": []
+  "docs-limit-accurate": [],
+  "rejection-result": ["fallback-over-limit", "size-advice-wrong-tool"],
+  "event-size-limit": ["old-build-rejects-escaped-message"],
+  "docs-error-layers": []
 }
 ```
 
