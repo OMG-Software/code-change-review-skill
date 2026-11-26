@@ -18,6 +18,8 @@ Severity is a priority rank from `[P1]` (most severe) to `[P5]` (least severe), 
 
 `(Defect)` versus `(Quality)` depends on whether the code behaves wrongly, not on what kind of work the fix is. A missing test is `[P4] MINOR (Quality)` on its own; if the untested code is actually broken, report the bug at its own rank and mention the missing test in the fix.
 
+Documentation behaves wrongly when someone acts on it. A false claim that an operator, user or integrator will follow (a recovery step that doesn't recover, a wrong error code to search for, a compatibility promise the format breaks) is a `(Defect)`, ranked by what following it causes: `[P3]` usually, `[P2]` when following it leaves them stuck in normal use or loses data. Stale or imprecise wording that changes no one's action is `[P4] MINOR (Quality)`.
+
 When torn between two labels, pick the less severe one (the higher number) and say what would raise it ("[P3] MINOR (Defect), or [P2] MAJOR if this endpoint is public").
 
 Confidence is separate from severity. A finding is **Confirmed** (traced end to end or reproduced) or **Plausible** (credible path, but the deciding fact is out of reach, such as production config, another service or a runtime condition you can't reproduce). State it only when Plausible, together with what would confirm it. If you could check that yourself (read a file, search, run a test), do it before reporting: the finding is then Confirmed or dropped. A Plausible `[P1] CRITICAL` still belongs at the top. `references/verification.md` has the full rules.

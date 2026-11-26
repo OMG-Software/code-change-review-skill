@@ -33,7 +33,8 @@ Language-agnostic. Pair it with the language files for the specific forms these 
 - Fail-open versus fail-closed: on error, does an auth or permission check deny?
 - Partial failure: if step 2 of 3 fails, is state consistent? Is there cleanup or a rollback?
 - External calls: timeouts set? Retries bounded, with backoff? Are retried operations idempotent?
-- Error messages: useful to the operator, safe for the end user (no stack traces or internals).
+- Error messages: useful to the operator, safe for the end user (no stack traces or internals), and right for every case that reaches them. Advice written for one caller ("create the file, then extend it with edits") misleads when a different tool or input lands on the same message.
+- Fallbacks obey the limits they enforce: a refusal, placeholder or truncated result must itself fit the configured cap at the smallest supported setting, or the fallback fails exactly where it was meant to recover.
 - Resource cleanup on *every* path, including error paths (files, sockets, locks, transactions).
 
 ### Concurrency and state
@@ -47,6 +48,7 @@ Language-agnostic. Pair it with the language files for the specific forms these 
 - Every caller of a changed signature, behaviour, default or return value. Find them; don't assume.
 - Changed defaults: who relied on the old one?
 - Shared code (utils, base classes, middleware): the change applies to every consumer, not only the one the author had in mind.
+- Sibling implementations: where several implementations take the same input (provider adapters, storage backends, platform ports, parsers for two wire formats), follow the unusual input the change is about (malformed, oversized, empty, an object where a string belongs) through each one. They should reach the same outcome, or the difference should be stated. A rule added in one adapter often leaves another rejecting, or accepting, that input before the new rule runs.
 
 ## Tier 2: Is it safe to ship?
 
@@ -63,7 +65,7 @@ Language-agnostic. Pair it with the language files for the specific forms these 
 
 ### Contracts and compatibility
 - Public API, CLI flags, config keys, environment variables, event and message schemas, file formats: is the change backward compatible?
-- Serialized data at rest: can the new code read old data, and can old code (during a rollout) read new data?
+- Serialized data at rest: can the new code read old data, and can old code (during a rollout or downgrade) read new data? Check the largest record the new code can write once encoded (escaping, multi-byte characters, framing), not a typical one: a raised size limit can produce records an older reader or another service rejects.
 - Enum or union additions: do consumers handle unknown values?
 - Semver: does the change match the version bump?
 
@@ -134,6 +136,7 @@ Language-agnostic. Pair it with the language files for the specific forms these 
 - Does a test exercise the new or changed behaviour? Would it *fail* if the change were reverted? Search the whole test tree (unit, integration, conformance) for the function, endpoint or scenario before reporting a test as missing.
 - Edge cases from tier 1 covered, not only the happy path.
 - Over-mocking: the test mocks the very thing it should be testing.
+- Persistence round trips: a test of replay, restore, resume or migration must reload from storage (close and reopen, restart, a fresh reader) before it asserts. Reusing the object that did the writing passes even when nothing, or the wrong thing, was written.
 - Flakiness sources: time, randomness, ordering, network, shared global state, sleeps.
 - Test names describe behaviour; assertions are specific (not just "no exception").
 - Bug fixes come with a regression test.
@@ -141,6 +144,10 @@ Language-agnostic. Pair it with the language files for the specific forms these 
 ### Documentation
 - README, API docs, changelog and migration notes updated for user-visible changes.
 - Comments and docstrings near edited lines still true.
+- **Every factual claim the change adds or edits is true.** Prose in docs, ADRs, changelogs, runbooks and agent files (`AGENTS.md`, `CLAUDE.md`) states a contract: error and status codes, limits and sizes, file names and paths, config keys, defaults, preconditions, which cases succeed and which fail. List the concrete claims in each changed paragraph and check each one against the code or decision record it describes, at the layer it describes (`verification.md`, "Doc claim checked at the wrong layer"). Treat these docs as part of the code change, not as prose to skim.
+- Recovery, upgrade and migration steps: walk them against the code. Does doing exactly what the doc says reach the promised state? A step that leaves out something the code also reads (rotated archives, a cache, a second config location) leaves the operator stuck while believing they followed the fix.
+- Compatibility and limit claims hold at the boundary, not only in the typical case ("an older build can open it" must survive the largest record this build writes).
+- Statements that must agree do: a changelog entry with its neighbours and the version bump, a summary (`README`, `AGENTS.md`) with the detailed doc, a doc with the ADR it cites. A summary that drops a condition is the version readers act on.
 
 ## Context-dependent angles
 

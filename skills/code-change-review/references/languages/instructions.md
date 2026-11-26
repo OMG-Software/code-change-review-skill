@@ -19,6 +19,7 @@ These files are programs. The interpreter is a model that does what the text say
 - **Every output another section reads:** a verdict read by a posting rule, a field the report template prints, a label that automation parses, a file another step loads. Read both sections together and check that every value the producer can emit is handled by the consumer, under every condition.
 - **Requirements with a wide scope.** "Every finding", "at any severity", "always": check that each case in that scope can meet the requirement. A verdict that demands "a concrete input that triggers the failure", applied to quality findings and questions, which have no failure to trigger, turns valid findings into dropped ones.
 - **Summaries against the detail.** A short version in `SKILL.md` and the full rules in a reference file must not disagree. A summary that drops a condition ("give each finding to a verifier", without "when the host can start subagents") is the version a model following the summary will act on.
+- **Claims about the code.** `AGENTS.md`, `CLAUDE.md` and project skills often describe what the code does: which calls are rejected, what ends a turn, what a limit is. An agent acts on those as fact. Check each claim the change adds or edits against the code it describes, as for any doc (`review-angles.md`, Documentation); a summary that drops a precondition is wrong for every case the precondition excludes.
 
 ## Consistency across the text
 
