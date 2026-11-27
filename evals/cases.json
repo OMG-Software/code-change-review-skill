@@ -180,6 +180,14 @@
           "priority": "P2"
         }
       ]
+    },
+    {
+      "id": "cli-output-trusted",
+      "title": "Output folder option for the docs generator",
+      "language": "python",
+      "context": "scripts/gen_docs.py is run by developers on their own machines and by the docs workflow, which passes a fixed --out value and is triggered only by pushes to main. The repository runs no SonarQube, CodeQL or other static analyser in CI. page.name comes from the fixed list of files in api/ in the repository.",
+      "diff": "--- a/scripts/gen_docs.py\n+++ b/scripts/gen_docs.py\n@@ def main(argv=None):\n     parser = argparse.ArgumentParser(description=\"Render the API reference to HTML.\")\n+    parser.add_argument(\"--out\", default=\"build/docs\", help=\"directory to write the HTML into\")\n     args = parser.parse_args(argv)\n-    out = ROOT / \"build\" / \"docs\"\n+    out = Path(args.out)\n     out.mkdir(parents=True, exist_ok=True)\n     for page in render_pages(ROOT / \"api\"):\n         (out / page.name).write_text(page.html, encoding=\"utf-8\")\n--- a/.github/workflows/docs.yml\n+++ b/.github/workflows/docs.yml\n-      - run: python scripts/gen_docs.py\n+      - run: python scripts/gen_docs.py --out site/api",
+      "expected": []
     }
   ]
 }

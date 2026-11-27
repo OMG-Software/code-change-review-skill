@@ -28,6 +28,7 @@ Write the finding as a chain: *this input or state* reaches *this code*, which *
 - **Absence:** "never checked", "no caller", "no test", "not handled". Absence is the hardest to prove and the most often wrong.
 - **External rules:** what the language, library version, protocol or spec says.
 - **Intent:** whether the project decided this on purpose (ADR, design doc, comment, linked issue).
+- **Gates:** for a finding that the change fails a gate, two facts carry it. The analyser's rule fires on this code: an open alert at the reviewed revision, or code that matches what the rule flags. And the project enforces that gate (`references/reporting.md` says which gates count). Whether an attacker can reach the input is not one of these facts. It only rates the real risk in the body.
 
 ### 2. Settle each fact by reading or running something
 
@@ -79,6 +80,7 @@ Each pattern below is a real kind of rejected review comment, with the check tha
 | **Unused or dead code** | "No caller in the diff, so it's dead." | Search the whole repo and every build target, plus registration, routes, reflection and macros. Static analysers miss calls too; check before repeating their claim. |
 | **Missing test** | "No test changed, so the behaviour is untested." | Search the test tree for the function, the endpoint and the scenario, including integration and conformance suites. |
 | **Missing validation** | "The input reaches the query unchecked." | Trace upstream through every caller to the trust boundary; look for schema validation, middleware, typed parsing. |
+| **Gate finding judged by reachability** | "Only the release job calls this, with fixed paths, so the path-traversal finding is wrong." | For a claim that a gate fails, check that the rule fires on this code and that the project enforces the gate. Trusted input lowers the real risk stated in the body. It does not refute the finding. |
 | **Spec or standard misread** | "Users who left the room must not see later events." / "Use HTTPS, not HTTP." / "SHA-1 is weak." | Find the section of the spec or RFC. The protocol may require the behaviour (loopback HTTP redirect URIs, HMAC-SHA1 in a third-party API, `world_readable` visibility). |
 | **Documented decision** | "This should block until the reload is confirmed." | Check ADRs, design docs and comments. If it is a recorded trade-off, either drop it or question the decision explicitly, unless it breaks a spec, requirement or security invariant, which is still a defect. |
 | **Moved, not changed** | "This new constructor takes a large object by value." | Check whether the code is new or moved verbatim (`git diff -M`, `git log -L`, or the base version). Moved code is pre-existing; label it so or drop it. |
@@ -136,7 +138,9 @@ sandbox without unnecessary credentials or network access; otherwise inspect sta
    lockfile pins. Find the spec section. Read ADRs, design docs, comments and the rest
    of the change. The table "False positive patterns" in
    <skill-dir>/references/verification.md lists the usual mistakes; check each one
-   that applies.
+   that applies. If the claim is that the change fails an analyser rule or a merge
+   gate, the facts to falsify are that the rule fires on this code and that the
+   project enforces the gate. Trusted input doesn't refute that claim.
 3. Return exactly one verdict:
    - refuted: the file:line, doc section or command output that shows a fact the
      claim depends on is false, and which fact.
