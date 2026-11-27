@@ -100,8 +100,10 @@ _AXES: list[Axis] = [
         signals=(
             r"\b(?:amounts?|prices?|pricing|currenc(?:y|ies)|money|monetary|payments?|payouts?|refund\w*"
             r"|invoice\w*|balance|tax|vat|discount\w*|subtotal|fees?|billing|ledger|wallet)\b",
-            # Case-sensitive: the type, not the word ("one decimal place").
-            r"\w*cents\b", r"\bprice\w*", r"\bcharge\w*|\w+charge\b", r"(?-i:\b(?:Big)?Decimal\b)",
+            # Suffix forms start at a word boundary: an unanchored \w* rescans a long word
+            # (base64, minified code) from every character, which is quadratic.
+            # Decimal is case-sensitive: the type, not the word ("one decimal place").
+            r"\b\w*cents\b", r"\bprice\w*", r"\b\w*charge\w*", r"(?-i:\b(?:Big)?Decimal\b)",
             r"\b(?:stripe|paypal|braintree|adyen)\b",
         ),
     ),

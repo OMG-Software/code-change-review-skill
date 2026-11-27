@@ -10,6 +10,7 @@ from pathlib import Path
 import subprocess
 import sys
 import tempfile
+import time
 import unittest
 from unittest.mock import patch
 
@@ -236,6 +237,15 @@ class AxisRoutingTests(unittest.TestCase):
         self.assertIn("web", ra.classify_axes("app.py", "from Flask import request"))
         self.assertNotIn("money", ra.classify_axes("fmt.py", "round to one decimal place"))
         self.assertIn("money", ra.classify_axes("fmt.py", "from decimal import Decimal"))
+
+    def test_long_words_scan_in_linear_time(self):
+        for word in ("unitCents", "surcharges", "chargeback"):
+            self.assertIn("money", ra.classify_axes("fees.py", f"x = {word}"), word)
+        # A base64 blob or minified bundle is one long word. A signal that is not anchored at a
+        # word boundary rescans it from every character; at 50,000 characters that takes minutes.
+        start = time.perf_counter()
+        ra.classify_axes("bundle.js", "a" * 50_000)
+        self.assertLess(time.perf_counter() - start, 2.0)
 
     def test_binary_content_is_not_scanned(self):
         self.assertIsNone(ra.decode_text(b"\x89PNG\r\n\x1a\n\0\0flask"))
