@@ -262,6 +262,25 @@ class AxisRoutingTests(unittest.TestCase):
             self.assertEqual(axes.get("references/axes/messaging.md"), ["worker.py"])
             self.assertNotIn("references/axes/caching.md", axes)
 
+    @unittest.skipUnless(shutil.which("git"), "git required")
+    def test_paths_only_ignores_local_files_with_the_same_path(self):
+        script = ROOT / "skills" / "code-change-review" / "scripts" / "detect_languages.py"
+        with isolated_git_repo() as repo:
+            # A local checkout that happens to hold files at the remote PR's paths.
+            (repo / "app.py").write_text("from flask import Flask\n")
+            (repo / "tool").write_text("#!/usr/bin/env python3\n")
+
+            def run(*flags: str) -> dict:
+                out = subprocess.run([sys.executable, str(script), "--json", *flags], cwd=repo,
+                                     input=b"app.py\ntool\n", stdout=subprocess.PIPE, check=True).stdout
+                return json.loads(out)
+
+            local = run()
+            self.assertIn("references/axes/web.md", [a["file"] for a in local["axes"]])
+            remote = run("--paths-only")
+            self.assertNotIn("references/axes/web.md", [a["file"] for a in remote["axes"]])
+            self.assertIn("tool", remote["unmapped"])   # its shebang was not read either
+
 
 @unittest.skipUnless(shutil.which("git"), "git required")
 class GitSnapshotTests(unittest.TestCase):

@@ -650,6 +650,9 @@ def main() -> int:
     ap.add_argument("--git", metavar="REF", help="diff the working tree against merge-base(REF, HEAD)")
     ap.add_argument("--head", metavar="REV", help="with --git: diff REV (e.g. a fetched PR) against merge-base(REF, REV) "
                                                   "and read file contents from REV, ignoring the working tree")
+    ap.add_argument("--paths-only", action="store_true",
+                    help="route on paths alone and never read local files: for a file list from another "
+                         "repository, whose files the local checkout doesn't have (or has different versions of)")
     ap.add_argument("--json", action="store_true", help="emit JSON")
     ap.add_argument("--check", action="store_true", help="validate the skill's language mapping and exit")
     args = ap.parse_args()
@@ -665,6 +668,8 @@ def main() -> int:
 
     if args.head and not args.git:
         ap.error("--head needs --git BASE")
+    if args.paths_only and args.git:
+        ap.error("--paths-only is for a file list; --git reads contents from the repository")
 
     cwd = Path.cwd()
     read_old: Callable[[str], str | None] | None = None
@@ -704,6 +709,9 @@ def main() -> int:
     # the script. Piped lists usually come from `git diff --name-only` (root-relative).
     if args.head:
         entries = [(f, None) for f in files]   # never look at local files for a commit under review
+    elif args.paths_only:
+        # Another repository's paths: a local file at the same path is unrelated content.
+        entries = [(_native_to_posix(f), None) for f in files]
     elif args.files and not args.git:
         entries = resolve_inputs(files, cwd, repo_root, repo_root)
     else:
