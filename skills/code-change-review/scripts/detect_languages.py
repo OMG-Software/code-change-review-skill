@@ -1,14 +1,19 @@
 #!/usr/bin/env python3
-"""Map changed files to the language reference files a reviewer should load.
+"""Map changed files to the language references and review axes a reviewer should load.
 
 Only references for languages actually present in the change are reported, so
-the review loads the guidance it needs and nothing else.
+the review loads the guidance it needs and nothing else. Review axes
+(references/axes/*.md) are chosen from each file's path and contents by
+review_axes.py; their signals are broad on purpose, because a missed axis drops
+a class of checks while an extra one only costs a little context.
 
 Usage:
   detect_languages.py --git main          # files changed since merge-base with main (incl. uncommitted + untracked)
   detect_languages.py --git HEAD          # uncommitted + untracked changes only
   detect_languages.py --git origin/main --head refs/review/pr-123   # a fetched PR; working tree ignored
+  detect_languages.py --staged            # staged changes; contents from the index and HEAD
   git diff --name-only A..B | detect_languages.py   # git-quoted names are decoded; -z output also works
+  gh pr diff URL --name-only | detect_languages.py --paths-only   # another repository: never read local files
   detect_languages.py path/a.py path/b.go
   detect_languages.py --json ...          # machine-readable output
   detect_languages.py --check             # verify mapping, reference files and SKILL.md table agree
@@ -27,10 +32,16 @@ import shlex
 import subprocess
 import sys
 from pathlib import Path, PurePosixPath
-from typing import Callable
+from typing import Callable, Sequence
+
+# Importing a sibling module would otherwise write scripts/__pycache__/ into the checkout
+# being reviewed, where `--git` then reports it as an untracked change.
+sys.dont_write_bytecode = True
+import review_axes  # noqa: E402
 
 SKILL_DIR = Path(__file__).resolve().parent.parent
 LANG_DIR = SKILL_DIR / "references" / "languages"
+AXES_DIR = review_axes.AXES_DIR
 
 # Reference file (without .md) -> lowercase file extensions.
 EXTENSIONS: dict[str, set[str]] = {
@@ -372,24 +383,69 @@ def files_from_git(ref: str, cwd: Path, head: str | None = None) -> tuple[list[s
     return sorted(set(changed) | set(untracked)), root, base, None
 
 
-def first_line_at(rev: str, root: Path) -> Callable[[str], str | None]:
-    """Return a reader for a file's first line at `rev` (deleted files, or a commit under review).
+def files_staged(cwd: Path) -> tuple[list[str], Path, str | None]:
+    """Paths staged in the index against HEAD, the repo root, and HEAD (None before the first commit)."""
+    root = Path(_git(["rev-parse", "--show-toplevel"], cwd)[0])
+    try:
+        head = resolve_commit("HEAD", root)
+    except ValueError:
+        head = None
+    changed = _git_paths(["diff", "--cached", "--name-only", "--no-renames"], root)
+    return sorted(changed), root, head
 
-    Only the first 200 bytes are read from git; the process is then stopped, so a large
-    deleted binary is never buffered just to look for a shebang.
+
+def _blob_env() -> dict[str, str]:
+    """The caller's environment, read at call time, plus GIT_NO_LAZY_FETCH.
+
+    A blobless partial clone would otherwise fetch a missing blob from its remote, and
+    write it into .git, just to route a file. Unavailable blobs are routed on paths.
+    (Git versions without GIT_NO_LAZY_FETCH ignore it.)
+    """
+    return {**os.environ, "GIT_NO_LAZY_FETCH": "1"}
+
+
+def _blob_reader(rev: str, root: Path, limit: int,
+                 decode: Callable[[bytes], str | None]) -> Callable[[str], str | None]:
+    """Return a reader for the first `limit` bytes of a file at `rev` ("" for the index).
+
+    git is stopped once `limit` bytes have arrived, so a large blob is never buffered
+    whole. A missing (or empty) blob reads as None.
     """
     def read(path: str) -> str | None:
-        proc = subprocess.Popen(["git", "cat-file", "blob", f"{rev}:{path}"], cwd=root,
+        proc = subprocess.Popen(["git", "cat-file", "blob", f"{rev}:{path}"], cwd=root, env=_blob_env(),
                                 stdout=subprocess.PIPE, stderr=subprocess.DEVNULL)
         try:
-            head = proc.stdout.read(200)               # empty if the blob doesn't exist
+            data = proc.stdout.read(limit)              # empty if the blob doesn't exist
         finally:
             proc.stdout.close()
             if proc.poll() is None:
                 proc.kill()
             proc.wait()
-        return head.split(b"\n", 1)[0].decode("utf-8", "replace") if head else None
+        return decode(data) if data else None
     return read
+
+
+def first_line_at(rev: str, root: Path) -> Callable[[str], str | None]:
+    """Return a reader for a file's first line at `rev` (deleted files, or a commit under review)."""
+    return _blob_reader(rev, root, 200, lambda data: data.split(b"\n", 1)[0].decode("utf-8", "replace"))
+
+
+def text_at(rev: str, root: Path) -> Callable[[str], str | None]:
+    """Return a reader for a file's text at `rev`, for review-axis signals.
+
+    Reads at most review_axes.MAX_SCAN_BYTES (plus one, to know it was cut); binary
+    content yields None.
+    """
+    return _blob_reader(rev, root, review_axes.MAX_SCAN_BYTES + 1, review_axes.decode_text)
+
+
+def _text_from_disk(file: Path) -> str | None:
+    try:
+        with file.open("rb") as fh:
+            data = fh.read(review_axes.MAX_SCAN_BYTES + 1)
+    except OSError:
+        return None
+    return review_axes.decode_text(data)
 
 
 def _first_of(*readers: Callable[[str], str | None]) -> Callable[[str], str | None]:
@@ -460,36 +516,78 @@ def resolve_inputs(paths: list[str], first_base: Path, other_base: Path, repo_ro
 
 
 def detect(entries: list[tuple[str, Path | None]],
-           read_old_first_line: Callable[[str], str | None] | None = None) -> dict:
+           read_old_first_line: Callable[[str], str | None] | None = None,
+           read_texts: Sequence[Callable[[str], str | None]] = ()) -> dict:
+    """Classify every changed file into language references and review axes.
+
+    A file's text is what is on disk at `abs_path` (resolve_inputs only sets it for files
+    inside the repository) plus what each of `read_texts` returns (the other sides of the
+    change: the base, or the revision under review and the base). Every side counts, so
+    removing a file's last web signal still loads the web axis, and so does each side's
+    shebang. Prose and image files are matched on their paths only, so a README that
+    mentions caching doesn't load the caching axis.
+    """
     matched: dict[str, list[str]] = {}
+    axes: dict[str, list[str]] = {}
     unmapped: list[str] = []
     for rel, abs_path in entries:
         refs = classify(rel, abs_path, read_old_first_line)
         for ref in refs:
             matched.setdefault(ref, []).append(rel)
-        if not refs and PurePosixPath(rel).suffix.lower() not in IGNORED_EXTENSIONS:
+        scannable = PurePosixPath(rel).suffix.lower() not in IGNORED_EXTENSIONS
+        if not refs and scannable:
             unmapped.append(rel)
+        text = None
+        axis_langs = list(refs)
+        if scannable:
+            sides = [_text_from_disk(abs_path) if abs_path is not None else None,
+                     *(read(rel) for read in read_texts)]
+            text = "\n".join(t for t in sides if t) or None
+            if not PurePosixPath(rel).suffix:
+                # `refs` has one shebang (head first); a script rewritten from sh to Python
+                # still needs the axes its old interpreter selects.
+                for side in sides:
+                    ref = shebang_ref(side.split("\n", 1)[0]) if side else None
+                    if ref and ref not in axis_langs:
+                        axis_langs.append(ref)
+        for axis in review_axes.classify_axes(rel, text, axis_langs):
+            axes.setdefault(axis, []).append(rel)
+    order = list(review_axes.AXES)
     return {
         "references": [
             {"file": f"references/languages/{ref}.md", "triggered_by": sorted(paths)}
             for ref, paths in sorted(matched.items(), key=lambda kv: -len(kv[1]))
+        ],
+        "axes": [
+            {"file": f"references/axes/{name}.md", "triggered_by": sorted(paths)}
+            for name, paths in sorted(axes.items(), key=lambda kv: order.index(kv[0]))
         ],
         "unmapped": sorted(unmapped),
         "total_files": len(entries),
     }
 
 
+def _print_entries(entries: list[dict]) -> None:
+    for r in entries:
+        shown = r["triggered_by"][:5]
+        more = len(r["triggered_by"]) - len(shown)
+        print(f"  {r['file']}  ({len(r['triggered_by'])} file(s): {', '.join(shown)}{f', +{more} more' if more else ''})")
+
+
 def print_human(result: dict) -> None:
     refs = result["references"]
-    print(f"{result['total_files']} changed file(s).")
+    print(f"{result['total_files']} changed file(s). Always load references/review-angles.md (the core checklist).")
     if refs:
         print("\nLoad these language references:")
-        for r in refs:
-            shown = r["triggered_by"][:5]
-            more = len(r["triggered_by"]) - len(shown)
-            print(f"  {r['file']}  ({len(r['triggered_by'])} file(s): {', '.join(shown)}{f', +{more} more' if more else ''})")
+        _print_entries(refs)
     else:
-        print("\nNo language references needed; apply references/review-angles.md only.")
+        print("\nNo language references needed.")
+    if result["axes"]:
+        print("\nLoad these review axes:")
+        _print_entries(result["axes"])
+    else:
+        print("\nNo review axes matched.")
+    print("Also load any other axis from the SKILL.md index that the code turns out to need.")
     if result["unmapped"]:
         print("\nNo reference file for (review with general angles and your own language knowledge):")
         for f in result["unmapped"][:20]:
@@ -499,6 +597,7 @@ def print_human(result: dict) -> None:
 
 
 TABLE_ROW = re.compile(r"^\|(?P<cell>.+?)\|\s*`references/languages/(?P<ref>[\w.-]+)\.md`\s*\|\s*$", re.MULTILINE)
+AXIS_ROW = re.compile(r"^\|\s*`references/axes/([\w.-]+)\.md`\s*\|", re.MULTILINE)
 
 
 def parse_routing_table(skill_md: str) -> dict[str, set[str]]:
@@ -521,7 +620,8 @@ def check() -> int:
     mapped = (set(EXTENSIONS) | set(FILENAMES) | set(CASE_SENSITIVE_FILENAMES)
               | {ref for ref, _, _ in PATH_RULES} | set(SHEBANGS))
     present = {p.stem for p in LANG_DIR.glob("*.md")}
-    table = parse_routing_table((SKILL_DIR / "SKILL.md").read_text(encoding="utf-8"))
+    skill_md = (SKILL_DIR / "SKILL.md").read_text(encoding="utf-8")
+    table = parse_routing_table(skill_md)
     tabled = set(table)
 
     for ref in sorted(mapped - present):
@@ -548,10 +648,27 @@ def check() -> int:
         if stale:
             problems.append(f"SKILL.md tables for {ref}.md list entries the detector doesn't route: {', '.join(stale)}")
 
+    axis_files = {p.stem for p in AXES_DIR.glob("*.md")}
+    axis_rows = set(AXIS_ROW.findall(skill_md))
+    known_axes = set(review_axes.AXES)
+    for name in sorted(known_axes - axis_files):
+        problems.append(f"detector selects a missing axis file: references/axes/{name}.md")
+    for name in sorted(axis_files - known_axes):
+        problems.append(f"axis file never selected by the detector: references/axes/{name}.md")
+    for name in sorted(axis_files - axis_rows):
+        problems.append(f"SKILL.md axis index has no row for references/axes/{name}.md")
+    for name in sorted(axis_rows - axis_files):
+        problems.append(f"SKILL.md axis index points to a missing file: references/axes/{name}.md")
+    for name, axis in review_axes.AXES.items():
+        for lang in axis.languages:
+            if lang not in present:
+                problems.append(f"axis {name} is selected by an unknown language reference: {lang}")
+
     for p in problems:
         print(f"FAIL  {p}")
     if not problems:
-        print(f"OK  {len(present)} language references; detector, files and SKILL.md table agree.")
+        print(f"OK  {len(present)} language references and {len(axis_files)} review axes; "
+              "detector, files and SKILL.md tables agree.")
     return 1 if problems else 0
 
 
@@ -561,6 +678,12 @@ def main() -> int:
     ap.add_argument("--git", metavar="REF", help="diff the working tree against merge-base(REF, HEAD)")
     ap.add_argument("--head", metavar="REV", help="with --git: diff REV (e.g. a fetched PR) against merge-base(REF, REV) "
                                                   "and read file contents from REV, ignoring the working tree")
+    ap.add_argument("--staged", action="store_true",
+                    help="files staged in the index against HEAD; contents come from the index and HEAD, "
+                         "not the working tree")
+    ap.add_argument("--paths-only", action="store_true",
+                    help="route on paths alone and never read local files: for a file list from another "
+                         "repository, whose files the local checkout doesn't have (or has different versions of)")
     ap.add_argument("--json", action="store_true", help="emit JSON")
     ap.add_argument("--check", action="store_true", help="validate the skill's language mapping and exit")
     args = ap.parse_args()
@@ -576,17 +699,30 @@ def main() -> int:
 
     if args.head and not args.git:
         ap.error("--head needs --git BASE")
+    if args.staged and (args.git or args.files):
+        ap.error("--staged takes no --git or file list; it lists the staged files itself")
+    if args.paths_only and (args.git or args.staged):
+        ap.error("--paths-only is for a file list; --git and --staged read contents from the repository")
 
     cwd = Path.cwd()
     read_old: Callable[[str], str | None] | None = None
-    if args.git:
+    read_texts: list[Callable[[str], str | None]] = []
+    if args.git or args.staged:
         try:
-            files, repo_root, base, head_sha = files_from_git(args.git, cwd, args.head)
-            read_old = first_line_at(base, repo_root)
-            if head_sha:
-                # The working tree isn't the code under review: read each file from REV,
-                # or from the base if REV deleted it.
-                read_old = _first_of(first_line_at(head_sha, repo_root), read_old)
+            if args.staged:
+                # "" reads the index (`:path`); HEAD is the other side of the change.
+                files, repo_root, base = files_staged(cwd)
+                head_sha = ""
+            else:
+                files, repo_root, base, head_sha = files_from_git(args.git, cwd, args.head)
+            read_old = first_line_at(base, repo_root) if base else None
+            read_texts = [text_at(base, repo_root)] if base else []
+            if head_sha is not None:
+                # The working tree isn't the code under review: read each file from REV (or
+                # the index), falling back to the base for a shebang if REV deleted the file.
+                head_line = first_line_at(head_sha, repo_root)
+                read_old = _first_of(head_line, read_old) if read_old else head_line
+                read_texts.insert(0, text_at(head_sha, repo_root))
         except ValueError as e:
             print(f"error: {e}", file=sys.stderr)
             return 2
@@ -610,14 +746,21 @@ def main() -> int:
 
     # git output is root-relative; command-line arguments are relative to where you ran
     # the script. Piped lists usually come from `git diff --name-only` (root-relative).
-    if args.head:
-        entries = [(f, None) for f in files]   # never look at local files for a commit under review
-    elif args.files and not args.git:
+    if args.head or args.staged:
+        entries = [(f, None) for f in files]   # never look at the working tree for a snapshot under review
+    elif args.paths_only:
+        # Another repository's paths: a local file at the same path is unrelated content.
+        entries = [(_native_to_posix(f), None) for f in files]
+    elif args.git:
+        # git's paths are root-relative only: a same-named file under the invocation
+        # directory is a different file, and must not stand in for a deleted one.
+        entries = resolve_inputs(files, repo_root, repo_root, repo_root)
+    elif args.files:
         entries = resolve_inputs(files, cwd, repo_root, repo_root)
     else:
         entries = resolve_inputs(files, repo_root, cwd, repo_root)
 
-    result = detect(entries, read_old)
+    result = detect(entries, read_old, read_texts)
     if args.json:
         print(json.dumps(result, indent=2))
     else:
