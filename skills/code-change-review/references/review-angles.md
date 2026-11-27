@@ -22,7 +22,7 @@ Language-agnostic. Pair it with the language files for the specific forms these 
 - Equality semantics: reference versus value, float comparison, case sensitivity, locale.
 - State machines: every transition handled, no unreachable or stuck states.
 - Copy/paste slips: a variable reused from the block above when it should be the new one.
-- Determinism: output that is written to a file, hashed, signed, compared, cached or checked in must not depend on hash-map or set iteration order, directory listing order, the current time or a random seed. A generator that ranges over a map produces a different file on each run, so "is the generated file up to date?" checks fail at random and every regeneration shows churn.
+- Determinism, where the output must be reproducible: a generated file that is checked in or compared with a fresh build, a build artifact, a cache key or content hash, a snapshot. Such output must not depend on hash-map or set iteration order, directory listing order, the current time or an unseeded random source. A generator that ranges over a map produces a different file on each run, so "is the generated file up to date?" checks fail at random and every regeneration shows churn. Randomness the output exists to have (keys, salts, nonces, tokens, randomized signatures) is exempt; removing it is the defect.
 
 ### Numbers, units and money
 - Money in binary floating point (`float`, `double`, JS `number` used for amounts that are summed or compared). Check the type the project uses for money (integer minor units, `Decimal`, a money type) and that the new code keeps to it end to end, including parsing and serialization.
@@ -87,7 +87,7 @@ Language-agnostic. Pair it with the language files for the specific forms these 
 - Output encoding: XSS where data reaches HTML or JS contexts.
 - DoS vectors: unbounded input sizes, regex backtracking (ReDoS), unbounded loops or recursion on input.
 - Web request baseline, in any language or framework. The language files list the framework-specific forms; these apply even where no language file names them:
-  - CSRF: a state-changing endpoint that authenticates by cookie needs a CSRF token, a `SameSite=Lax` or `Strict` session cookie, or an origin check. Endpoints that take only a bearer token from a header are not exposed.
+  - CSRF: a state-changing endpoint that authenticates by cookie needs a CSRF token or an `Origin`/`Referer` check. A `SameSite` session cookie narrows the exposure but is not enough alone: `Lax` still sends the cookie on a cross-site top-level `GET`, so a state-changing `GET` stays exposed, and under either `Lax` or `Strict` a page on a sibling subdomain counts as same-site and gets the cookie. Endpoints that take only a bearer token from a header are not exposed.
   - CORS: a reflected `Origin` or a wildcard combined with credentials; an allow-list matched by substring or suffix (`evil-example.com` passing a check for `example.com`).
   - Cookies: session cookies set without `Secure`, `HttpOnly` and a `SameSite` value; session ID not rotated on login or privilege change (fixation).
   - Mass assignment: a request body bound straight onto a model so that a client can set `role`, `owner_id` or `price`.
