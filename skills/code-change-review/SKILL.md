@@ -63,9 +63,9 @@ Also get the **intent**: the PR description, commit messages, linked issue, or a
 
 For very large changes (more than ~1,500 changed lines), triage first. Rank files by risk (auth, payments, data migrations, concurrency, public APIs, and anything deleted come before docs, generated code and lockfiles). Docs that state the contract of code this change touches (codes, limits, file formats, recovery steps, compatibility) are not low-risk prose: review their claims against that code alongside it. Keep a ledger of files fully reviewed, skimmed and not reviewed; state the coverage in the report. A limited review must not receive an unqualified "ready to merge" verdict.
 
-### 2. Load language guidance for what the change touches
+### 2. Load language guidance and review axes for what the change touches
 
-Load only the reference files for languages and file types in the change set, never all of them. Each file adds context that crowds out the code you're reviewing.
+Always load `references/review-angles.md`, the core checklist. Beyond it, load only the language references for the languages and file types in the change set, and only the review axes for the kinds of code it touches, never all of them. Each file adds context that crowds out the code you're reviewing.
 
 Run the detector if Python is available (`python` or `python3`):
 
@@ -76,9 +76,9 @@ python <skill-dir>/scripts/detect_languages.py --git refs/review/pr-<n>-base --h
 git diff --name-only ... | python <skill-dir>/scripts/detect_languages.py   # any file list
 ```
 
-For a pull request, use `--head` with the ref fetched in step 1. The detector then reads shebangs from the PR's commit, not from your working tree, which may lack the PR's new scripts or hold different versions of them. For a PR in another repository, `gh pr diff <url> --name-only | python <skill-dir>/scripts/detect_languages.py` gives the file list, but it can't see file contents. Check the first line of **every** extensionless file in the list, mapped or not (a Python script under `migrations/` is already mapped to `sql.md` but still needs `python.md`): read it at the PR head, or at the base if the PR deletes it, and route it with the shebang table below.
+For a pull request, use `--head` with the ref fetched in step 1. The detector then reads shebangs and file contents from the PR's commit, not from your working tree, which may lack the PR's new scripts or hold different versions of them. For a PR in another repository, `gh pr diff <url> --name-only | python <skill-dir>/scripts/detect_languages.py` gives the file list, but it can't see file contents, so it chooses axes from paths alone; choose the rest from the axis index below as you read the files. Check the first line of **every** extensionless file in the list, mapped or not (a Python script under `migrations/` is already mapped to `sql.md` but still needs `python.md`): read it at the PR head, or at the base if the PR deletes it, and route it with the shebang table below.
 
-It prints the reference files to read and which changed files triggered each one. Without Python, use this table, which matches the detector exactly. Filenames match case-insensitively.
+It prints the language references and review axes to read and which changed files triggered each one. Without Python, use this table for languages, which matches the detector exactly, and the axis index below for axes. Filenames match case-insensitively.
 
 | Changed files | Read |
 |---|---|
@@ -110,6 +110,28 @@ A file with no extension routes by the interpreter on its shebang line (`#!/usr/
 
 One file can need two references. A Rails or Alembic migration needs its language file and `sql.md`, and the detector reports both. A language with no reference file still gets a full review. The general angles below cover it, and you should apply what you know about that language's common pitfalls. Embedded languages count too: SQL strings in Python, or shell commands built in Go, are a reason to load `sql.md` or `shell.md`.
 
+**Review axes** hold the checks that matter only for some kinds of code. The detector picks them from each file's path and contents (imports, API names, keywords), with signals that are broad on purpose. It can still miss code built on a framework or library it doesn't know, so it is a starting point. After step 3, read this index again and load every axis whose row fits what you learned about the code, whether or not the detector chose it. When unsure, load it: an extra axis costs a little context, while a missing one drops all of its checks. Name the axes you loaded in the coverage note.
+
+| Axis | Load when the change… |
+|---|---|
+| `references/axes/web.md` | handles HTTP requests or responses: routes, controllers, middleware, cookies, CORS or CSRF settings |
+| `references/axes/caching.md` | reads or writes a cache or HTTP caching headers, memoizes results, or touches tenant-scoped data |
+| `references/axes/messaging.md` | publishes or consumes messages, events, webhooks or background jobs, or writes to a database and notifies another system |
+| `references/axes/load-and-shutdown.md` | runs as a service or worker, fans work out concurrently, retries or pools calls, or handles timeouts, cancellation or process signals |
+| `references/axes/money.md` | computes, stores, converts or charges monetary amounts |
+| `references/axes/time.md` | measures durations, checks timeouts, expiries, TTLs or leases, schedules work, or stores or converts timestamps |
+| `references/axes/data-migrations.md` | alters a database schema, writes a migration or backfill, or changes ORM models or constraints |
+| `references/axes/dependencies.md` | changes a manifest or lockfile, vendors third-party code, or adds a file with a licence header |
+| `references/axes/generated-output.md` | edits generated code or the source it comes from, touches snapshot or golden files, or writes output that must be the same on every run |
+| `references/axes/public-interfaces.md` | adds or reshapes an exported function or type, an endpoint, a CLI command or flag, a config key, an event or a file format |
+| `references/axes/privacy.md` | collects, stores, logs or shares personal data, or changes consent, retention or deletion |
+| `references/axes/llm-calls.md` | sends prompts to a language model API or acts on its replies |
+| `references/axes/data-ml.md` | transforms datasets or trains, evaluates or serves a model |
+| `references/axes/ui.md` | renders UI or changes user-facing strings and translations |
+| `references/axes/mobile.md` | is in an iOS, Android or cross-platform mobile app, its manifests or permissions |
+| `references/axes/cross-platform.md` | builds file paths, runs processes, reads or writes text files, or branches on the OS, in code that runs on more than one platform |
+| `references/axes/cloud-cost.md` | provisions or scales infrastructure, calls paid APIs per request, or raises log, metric or data-transfer volume |
+
 ### 3. Build context beyond the diff
 
 The diff shows what changed, not what it affects. Before judging anything:
@@ -125,16 +147,14 @@ The diff shows what changed, not what it affects. Before judging anything:
 
 ### 4. Review by angle, in priority order
 
-Work from the top of this list down. A bug in tier 1 matters more than any number of tier 3 notes. `references/review-angles.md` has the full checklist for each angle; read it for any non-trivial review.
+Work from the top of this list down. A bug in tier 1 matters more than any number of tier 3 notes. `references/review-angles.md` has the core checklist for each angle; read it for any non-trivial review.
 
-1. **Is it right?** Correctness and edge cases, determinism, numbers, units and money, time and clocks, intent fidelity (does it do what it claims, completely?), error handling and failure modes, concurrency and shared state, message delivery and dual writes, blast radius on callers.
-2. **Is it safe to ship?** Security (including the web request baseline in every language), cache and tenant isolation, API/schema/wire compatibility, data integrity and migrations, operability (rollout, rollback, observability), behaviour under load, cancellation and shutdown, new dependencies and copied code, privacy.
-3. **Is it good code?** Performance and efficiency, altitude (is the fix at the right layer?), the shape of new public interfaces, duplication and reuse, simplicity versus over-engineering, consistency with conventions, generated files kept in step with their source, readability.
+1. **Is it right?** Correctness and edge cases (including units and numeric precision), intent fidelity (does it do what it claims, completely?), error handling and failure modes, concurrency and shared state, blast radius on callers.
+2. **Is it safe to ship?** Security, API/schema/wire compatibility, operability (rollout, rollback, observability).
+3. **Is it good code?** Performance and efficiency, altitude (is the fix at the right layer?), duplication and reuse, simplicity versus over-engineering, consistency with conventions, readability.
 4. **Is it verified?** Tests that would actually fail without the change, existing tests and CI checks the change weakens, and documentation and comments whose every claim (codes, limits, paths, recovery steps) matches the code. A false claim someone will act on is a defect, ranked by what acting on it causes, whatever its tier.
 
-Some angles apply only in context: UI, cross-platform, cloud cost, mobile, application code that calls a language model, and data and ML pipelines (`references/review-angles.md`, "Context-dependent angles").
-
-Apply the loaded language file's checks within these angles. They are the specific forms these problems take in that language.
+Each loaded axis adds its checks to these tiers, ranked by what the defect causes: a missing CSRF check is a security finding, a double charge from a redelivered message is a correctness finding. Apply the loaded language file's checks within these angles too. They are the specific forms these problems take in that language.
 
 **Exhaust the change before reporting.** Don't stop at the first serious findings. After working through the angles, sweep every hunk you fully reviewed again and ask what is still wrong that you have not raised; repeat until a sweep adds nothing. Where step 1's triage limited coverage, record the skimmed and unreviewed files in the coverage note rather than claiming a full sweep. In Quick mode, one sweep is enough. Ranking decides the order findings are reported in, not whether lower-ranked ones are looked for. An issue the author first hears about after fixing the earlier ones costs a whole extra review round.
 

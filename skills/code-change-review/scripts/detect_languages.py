@@ -1,8 +1,11 @@
 #!/usr/bin/env python3
-"""Map changed files to the language reference files a reviewer should load.
+"""Map changed files to the language references and review axes a reviewer should load.
 
 Only references for languages actually present in the change are reported, so
-the review loads the guidance it needs and nothing else.
+the review loads the guidance it needs and nothing else. Review axes
+(references/axes/*.md) are chosen from each file's path and contents by
+review_axes.py; their signals are broad on purpose, because a missed axis drops
+a class of checks while an extra one only costs a little context.
 
 Usage:
   detect_languages.py --git main          # files changed since merge-base with main (incl. uncommitted + untracked)
@@ -29,8 +32,11 @@ import sys
 from pathlib import Path, PurePosixPath
 from typing import Callable
 
+import review_axes
+
 SKILL_DIR = Path(__file__).resolve().parent.parent
 LANG_DIR = SKILL_DIR / "references" / "languages"
+AXES_DIR = review_axes.AXES_DIR
 
 # Reference file (without .md) -> lowercase file extensions.
 EXTENSIONS: dict[str, set[str]] = {
@@ -392,8 +398,39 @@ def first_line_at(rev: str, root: Path) -> Callable[[str], str | None]:
     return read
 
 
+def text_at(rev: str, root: Path) -> Callable[[str], str | None]:
+    """Return a reader for a file's text at `rev`, for review-axis signals.
+
+    Reads at most review_axes.MAX_SCAN_BYTES (plus one, to know it was cut) and then
+    stops git, as first_line_at does; binary content yields None.
+    """
+    limit = review_axes.MAX_SCAN_BYTES + 1
+
+    def read(path: str) -> str | None:
+        proc = subprocess.Popen(["git", "cat-file", "blob", f"{rev}:{path}"], cwd=root,
+                                stdout=subprocess.PIPE, stderr=subprocess.DEVNULL)
+        try:
+            data = proc.stdout.read(limit)              # empty if the blob doesn't exist
+        finally:
+            proc.stdout.close()
+            if proc.poll() is None:
+                proc.kill()
+            proc.wait()
+        return review_axes.decode_text(data) if data else None
+    return read
+
+
+def _text_from_disk(file: Path) -> str | None:
+    try:
+        with file.open("rb") as fh:
+            data = fh.read(review_axes.MAX_SCAN_BYTES + 1)
+    except OSError:
+        return None
+    return review_axes.decode_text(data)
+
+
 def _first_of(*readers: Callable[[str], str | None]) -> Callable[[str], str | None]:
-    """Combine first-line readers: the first one that finds the file wins."""
+    """Combine readers (first lines or text): the first one that finds the file wins."""
     def read(path: str) -> str | None:
         for reader in readers:
             line = reader(path)
@@ -460,36 +497,69 @@ def resolve_inputs(paths: list[str], first_base: Path, other_base: Path, repo_ro
 
 
 def detect(entries: list[tuple[str, Path | None]],
-           read_old_first_line: Callable[[str], str | None] | None = None) -> dict:
+           read_old_first_line: Callable[[str], str | None] | None = None,
+           read_text: Callable[[str], str | None] | None = None) -> dict:
+    """Classify every changed file into language references and review axes.
+
+    A file's text comes from `abs_path` when it is on disk (resolve_inputs only sets it
+    for files inside the repository), otherwise from `read_text` (the revision under
+    review, then the base for a deleted file). Prose and image files are matched on
+    their paths only, so a README that mentions caching doesn't load the caching axis.
+    """
     matched: dict[str, list[str]] = {}
+    axes: dict[str, list[str]] = {}
     unmapped: list[str] = []
     for rel, abs_path in entries:
         refs = classify(rel, abs_path, read_old_first_line)
         for ref in refs:
             matched.setdefault(ref, []).append(rel)
-        if not refs and PurePosixPath(rel).suffix.lower() not in IGNORED_EXTENSIONS:
+        scannable = PurePosixPath(rel).suffix.lower() not in IGNORED_EXTENSIONS
+        if not refs and scannable:
             unmapped.append(rel)
+        text = None
+        if scannable:
+            if abs_path is not None:
+                text = _text_from_disk(abs_path)
+            elif read_text is not None:
+                text = read_text(rel)
+        for axis in review_axes.classify_axes(rel, text, refs):
+            axes.setdefault(axis, []).append(rel)
+    order = list(review_axes.AXES)
     return {
         "references": [
             {"file": f"references/languages/{ref}.md", "triggered_by": sorted(paths)}
             for ref, paths in sorted(matched.items(), key=lambda kv: -len(kv[1]))
+        ],
+        "axes": [
+            {"file": f"references/axes/{name}.md", "triggered_by": sorted(paths)}
+            for name, paths in sorted(axes.items(), key=lambda kv: order.index(kv[0]))
         ],
         "unmapped": sorted(unmapped),
         "total_files": len(entries),
     }
 
 
+def _print_entries(entries: list[dict]) -> None:
+    for r in entries:
+        shown = r["triggered_by"][:5]
+        more = len(r["triggered_by"]) - len(shown)
+        print(f"  {r['file']}  ({len(r['triggered_by'])} file(s): {', '.join(shown)}{f', +{more} more' if more else ''})")
+
+
 def print_human(result: dict) -> None:
     refs = result["references"]
-    print(f"{result['total_files']} changed file(s).")
+    print(f"{result['total_files']} changed file(s). Always load references/review-angles.md (the core checklist).")
     if refs:
         print("\nLoad these language references:")
-        for r in refs:
-            shown = r["triggered_by"][:5]
-            more = len(r["triggered_by"]) - len(shown)
-            print(f"  {r['file']}  ({len(r['triggered_by'])} file(s): {', '.join(shown)}{f', +{more} more' if more else ''})")
+        _print_entries(refs)
     else:
-        print("\nNo language references needed; apply references/review-angles.md only.")
+        print("\nNo language references needed.")
+    if result["axes"]:
+        print("\nLoad these review axes:")
+        _print_entries(result["axes"])
+    else:
+        print("\nNo review axes matched.")
+    print("Also load any other axis from the SKILL.md index that the code turns out to need.")
     if result["unmapped"]:
         print("\nNo reference file for (review with general angles and your own language knowledge):")
         for f in result["unmapped"][:20]:
@@ -499,6 +569,7 @@ def print_human(result: dict) -> None:
 
 
 TABLE_ROW = re.compile(r"^\|(?P<cell>.+?)\|\s*`references/languages/(?P<ref>[\w.-]+)\.md`\s*\|\s*$", re.MULTILINE)
+AXIS_ROW = re.compile(r"^\|\s*`references/axes/([\w.-]+)\.md`\s*\|", re.MULTILINE)
 
 
 def parse_routing_table(skill_md: str) -> dict[str, set[str]]:
@@ -521,7 +592,8 @@ def check() -> int:
     mapped = (set(EXTENSIONS) | set(FILENAMES) | set(CASE_SENSITIVE_FILENAMES)
               | {ref for ref, _, _ in PATH_RULES} | set(SHEBANGS))
     present = {p.stem for p in LANG_DIR.glob("*.md")}
-    table = parse_routing_table((SKILL_DIR / "SKILL.md").read_text(encoding="utf-8"))
+    skill_md = (SKILL_DIR / "SKILL.md").read_text(encoding="utf-8")
+    table = parse_routing_table(skill_md)
     tabled = set(table)
 
     for ref in sorted(mapped - present):
@@ -548,10 +620,27 @@ def check() -> int:
         if stale:
             problems.append(f"SKILL.md tables for {ref}.md list entries the detector doesn't route: {', '.join(stale)}")
 
+    axis_files = {p.stem for p in AXES_DIR.glob("*.md")}
+    axis_rows = set(AXIS_ROW.findall(skill_md))
+    known_axes = set(review_axes.AXES)
+    for name in sorted(known_axes - axis_files):
+        problems.append(f"detector selects a missing axis file: references/axes/{name}.md")
+    for name in sorted(axis_files - known_axes):
+        problems.append(f"axis file never selected by the detector: references/axes/{name}.md")
+    for name in sorted(axis_files - axis_rows):
+        problems.append(f"SKILL.md axis index has no row for references/axes/{name}.md")
+    for name in sorted(axis_rows - axis_files):
+        problems.append(f"SKILL.md axis index points to a missing file: references/axes/{name}.md")
+    for name, axis in review_axes.AXES.items():
+        for lang in axis.languages:
+            if lang not in present:
+                problems.append(f"axis {name} is selected by an unknown language reference: {lang}")
+
     for p in problems:
         print(f"FAIL  {p}")
     if not problems:
-        print(f"OK  {len(present)} language references; detector, files and SKILL.md table agree.")
+        print(f"OK  {len(present)} language references and {len(axis_files)} review axes; "
+              "detector, files and SKILL.md tables agree.")
     return 1 if problems else 0
 
 
@@ -579,14 +668,17 @@ def main() -> int:
 
     cwd = Path.cwd()
     read_old: Callable[[str], str | None] | None = None
+    read_text: Callable[[str], str | None] | None = None
     if args.git:
         try:
             files, repo_root, base, head_sha = files_from_git(args.git, cwd, args.head)
             read_old = first_line_at(base, repo_root)
+            read_text = text_at(base, repo_root)
             if head_sha:
                 # The working tree isn't the code under review: read each file from REV,
                 # or from the base if REV deleted it.
                 read_old = _first_of(first_line_at(head_sha, repo_root), read_old)
+                read_text = _first_of(text_at(head_sha, repo_root), read_text)
         except ValueError as e:
             print(f"error: {e}", file=sys.stderr)
             return 2
@@ -617,7 +709,7 @@ def main() -> int:
     else:
         entries = resolve_inputs(files, repo_root, cwd, repo_root)
 
-    result = detect(entries, read_old)
+    result = detect(entries, read_old, read_text)
     if args.json:
         print(json.dumps(result, indent=2))
     else:
