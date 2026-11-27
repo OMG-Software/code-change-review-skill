@@ -72,6 +72,7 @@ Run the detector if Python is available (`python` or `python3`):
 ```bash
 python <skill-dir>/scripts/detect_languages.py --git <base>   # branch vs base
 python <skill-dir>/scripts/detect_languages.py --git HEAD     # uncommitted work
+python <skill-dir>/scripts/detect_languages.py --staged       # staged only: reads the index, not the working tree
 python <skill-dir>/scripts/detect_languages.py --git refs/review/pr-<n>-base --head refs/review/pr-<n>-head   # fetched PR
 git diff --name-only ... | python <skill-dir>/scripts/detect_languages.py   # any file list
 ```
@@ -110,7 +111,7 @@ A file with no extension routes by the interpreter on its shebang line (`#!/usr/
 
 One file can need two references. A Rails or Alembic migration needs its language file and `sql.md`, and the detector reports both. A language with no reference file still gets a full review. The general angles below cover it, and you should apply what you know about that language's common pitfalls. Embedded languages count too: SQL strings in Python, or shell commands built in Go, are a reason to load `sql.md` or `shell.md`.
 
-**Review axes** hold the checks that matter only for some kinds of code. The detector picks them from each file's path and contents (imports, API names, keywords), with signals that are broad on purpose. It can still miss code built on a framework or library it doesn't know, so it is a starting point. After step 3, read this index again and load every axis whose row fits what you learned about the code, whether or not the detector chose it. When unsure, load it: an extra axis costs a little context, while a missing one drops all of its checks. Name the axes you loaded in the coverage note.
+**Review axes** hold the checks that matter only for some kinds of code. The detector picks them from each file's path and contents (imports, API names, keywords) on both sides of the change, so removing a file's last CSRF check still loads the web axis. Its signals are broad on purpose. It can still miss code built on a framework or library it doesn't know, so it is a starting point. After step 3, read this index again and load every axis whose row fits what you learned about the code, whether or not the detector chose it. When unsure, load it: an extra axis costs a little context, while a missing one drops all of its checks. Name the axes you loaded in the coverage note.
 
 | Axis | Load when the change… |
 |---|---|
@@ -120,7 +121,7 @@ One file can need two references. A Rails or Alembic migration needs its languag
 | `references/axes/load-and-shutdown.md` | runs as a service or worker, fans work out concurrently, retries or pools calls, or handles timeouts, cancellation or process signals |
 | `references/axes/money.md` | computes, stores, converts or charges monetary amounts |
 | `references/axes/time.md` | measures durations, checks timeouts, expiries, TTLs or leases, schedules work, or stores or converts timestamps |
-| `references/axes/data-migrations.md` | alters a database schema, writes a migration or backfill, or changes ORM models or constraints |
+| `references/axes/data-migrations.md` | alters a database schema, writes a migration or backfill, changes ORM models or constraints, or rewrites stored data |
 | `references/axes/dependencies.md` | changes a manifest or lockfile, vendors third-party code, or adds a file with a licence header |
 | `references/axes/generated-output.md` | edits generated code or the source it comes from, touches snapshot or golden files, or writes output that must be the same on every run |
 | `references/axes/public-interfaces.md` | adds or reshapes an exported function or type, an endpoint, a CLI command or flag, a config key, an event or a file format |

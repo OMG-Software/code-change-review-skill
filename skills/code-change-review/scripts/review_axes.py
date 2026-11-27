@@ -16,6 +16,7 @@ under its own rules for symlinks and pinned revisions; nothing here touches disk
 
 from __future__ import annotations
 
+import codecs
 import fnmatch
 import re
 from dataclasses import dataclass, field
@@ -93,6 +94,7 @@ _AXES: list[Axis] = [
             r"\bsemaphore|\bbackoff\b|\bretr(?:y|ies|ying)\b|circuit[-_ ]?breaker",
             r"connection[-_ ]?pool|\bpool_?size\b|\bmax_?connections\b|\bworker_?(?:pool|count|threads)\b",
             r"context\.With(?:Timeout|Deadline|Cancel)|\bCancellationToken\b|\bAbort(?:Controller|Signal)\b",
+            r"\b\w*time_?out\w*",   # timeout, requestTimeout, READ_TIMEOUT_MS: a setting alone counts
         ),
     ),
     Axis(
@@ -115,6 +117,7 @@ _AXES: list[Axis] = [
             r"\b(?:Instant|LocalDateTime|ZonedDateTime|OffsetDateTime|DateTimeOffset|ZoneId)\b",
             r"\bDateTime\.(?:Now|UtcNow|Today)\b|\bSystem\.(?:currentTimeMillis|nanoTime)\b",
             r"\b(?:ttl|expir\w*|lease\w*|cron\w*|schedul\w*|utc\w*|epoch|clock\w*|deadline)\b",
+            r"\b\w*time_?out\w*",
             r"\b(?:moment|dayjs|date-fns|luxon|chrono)\b",
         ),
     ),
@@ -138,6 +141,7 @@ _AXES: list[Axis] = [
                "*.csproj", "*.fsproj", "*.vbproj", "packages.config", "directory.packages.props", "gemfile",
                "gemfile.lock", "*.gemspec", "composer.json", "composer.lock", "package.swift", "package.resolved",
                "podfile", "podfile.lock", "vcpkg.json", "conanfile.txt", "conanfile.py",
+               "module.bazel", "module.bazel.lock", "workspace.bazel", "flake.nix", "flake.lock",
                "vendor/", "third_party/", "third-party/", "thirdparty/", "external/",
                "license", "license.*", "notice", "notice.*", "copying", "copying.*"),
         signals=(
@@ -161,10 +165,15 @@ _AXES: list[Axis] = [
         paths=("openapi*", "swagger*", "*.proto", "*.graphql", "*.graphqls", "*.gql", "*.d.ts", "*.pyi",
                "include/", "api/"),
         signals=(
-            r"\b__all__\b", r"^\s*pub\s+(?:fn|struct|enum|trait|mod|const|type|use)\b",
-            r"^\s*export\s+(?:default\s+)?(?:async\s+)?(?:function|class|const|let|interface|type|enum)\b",
+            # Indentation is [ \t]*, not \s*: \s would run across blank lines from every line
+            # start, which is quadratic in a long run of them.
+            r"\b__all__\b", r"^[ \t]*pub\s+(?:fn|struct|enum|trait|mod|const|type|use)\b",
+            r"^[ \t]*export\s+(?:default\s+)?(?:async\s+)?(?:function|class|const|let|interface|type|enum)\b",
             r"\bmodule\.exports\b|\bexports\.\w+\s*=",
-            r"^\s*public\s+(?:(?:sealed|abstract|static|final)\s+)*(?:class|interface|enum|record|struct)\b",
+            r"^[ \t]*public\s+(?:(?:sealed|abstract|static|final)\s+)*(?:class|interface|enum|record|struct)\b",
+            # Go exports by capital letter: func Format(, func (r *T) Do(, type Report struct.
+            r"(?-i:^func[ \t]+(?:\([^)\n]*\)[ \t]*)?[A-Z]\w*[ \t]*[\[(])",
+            r"(?-i:^type[ \t]+[A-Z]\w*(?:\[|[ \t]+[\w*\[]))",
             r"\b(?:argparse|add_argument|add_parser|typer|commander|yargs|clap)\b|\bclick\.(?:option|argument|command|group)\b",
             r"\bcobra\.Command\b|\bflag\.(?:String|Int|Bool|Duration|Float64)\w*\(|#\[derive\([^)]*Parser",
             r"@(?:Get|Post|Put|Delete|Patch|Request)Mapping\b|\[Http(?:Get|Post|Put|Delete|Patch)\b",
@@ -289,7 +298,12 @@ def classify_axes(path: str, text: str | None = None, languages: tuple[str, ...]
 
 
 def decode_text(data: bytes) -> str | None:
-    """Bytes read from a file -> text to scan, or None for binary content."""
+    """Bytes read from a file -> text to scan, or None for binary content.
+
+    UTF-16 text is full of NUL bytes, so a byte-order mark is checked before the NUL test.
+    """
+    if data.startswith((codecs.BOM_UTF16_LE, codecs.BOM_UTF16_BE)):
+        return data[:MAX_SCAN_BYTES].decode("utf-16", "replace")
     if b"\0" in data[:8192]:
         return None
     return data[:MAX_SCAN_BYTES].decode("utf-8", "replace")

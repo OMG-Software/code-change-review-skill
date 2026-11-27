@@ -1,6 +1,7 @@
 """Behavioral tests for the detector and its Git snapshot routing (stdlib only)."""
 from __future__ import annotations
 
+import codecs
 import contextlib
 import io
 import json
@@ -168,37 +169,51 @@ class LanguageDetectionTests(unittest.TestCase):
 _CASE_EXT = {"python": ".py", "typescript": ".ts", "javascript": ".js", "go": ".go", "rust": ".rs", "proto": ".proto"}
 
 
-def _diff_files(case: dict) -> list[tuple[str, str]]:
-    """Split an eval case's diff into (path, text) pairs; a header-less snippet gets a name from its language."""
-    out: list[tuple[str | None, list[str]]] = []
-    path: str | None = None
-    buf: list[str] = []
+def _diff_sides(case: dict) -> dict[str, tuple[str, str]]:
+    """Split an eval case's diff into {path: (head text, base text)}.
+
+    Added and context lines make the head, removed and context lines the base. A
+    header-less snippet gets a name from its language.
+    """
+    fallback = "snippet" + _CASE_EXT.get(case["language"], "")
+    files: dict[str, tuple[list[str], list[str]]] = {}
+    old = path = None
     for line in case["diff"].split("\n"):
         if line.startswith("--- "):
+            old = line[4:].removeprefix("a/")
             continue
         if line.startswith("+++ "):
-            if path is not None or buf:
-                out.append((path, buf))
-            path, buf = line[4:].removeprefix("b/"), []
+            new = line[4:].removeprefix("b/")
+            path = old if new == "/dev/null" else new
             continue
-        if not line.startswith("@@"):
-            buf.append(line[1:] if line[:1] in "+- " else line)
-    out.append((path, buf))
-    fallback = "snippet" + _CASE_EXT.get(case["language"], "")
-    return [(p if p and p != "/dev/null" else fallback, "\n".join(b)) for p, b in out]
+        if line.startswith("@@"):
+            continue
+        head, base = files.setdefault(path or fallback, ([], []))
+        if line[:1] != "-":
+            head.append(line[1:] if line[:1] in "+ " else line)
+        if line[:1] != "+":
+            base.append(line[1:] if line[:1] in "- " else line)
+    return {p: ("\n".join(h), "\n".join(b)) for p, (h, b) in files.items()}
+
+
+# Axes the eval corpus must keep a case for; extend it when a case for another axis lands.
+_EVAL_AXES = {"web", "caching", "messaging", "load-and-shutdown", "money", "time", "dependencies",
+              "generated-output", "public-interfaces", "llm-calls", "data-ml"}
 
 
 class AxisRoutingTests(unittest.TestCase):
     def test_eval_cases_route_to_their_axes(self):
         cases = json.loads((ROOT / "evals" / "cases.json").read_text(encoding="utf-8"))["cases"]
-        routed = [c for c in cases if c["axes"]]
-        self.assertGreaterEqual(len(routed), len(ra.AXES) - 6)   # most axes have a case
+        covered = {axis for case in cases for axis in case["axes"]}
+        self.assertLessEqual(_EVAL_AXES, covered)
         for case in cases:
             with self.subTest(case=case["id"]):
                 self.assertTrue(set(case["axes"]) <= set(ra.AXES), case["axes"])
-                selected: set[str] = set()
-                for path, text in _diff_files(case):
-                    selected.update(ra.classify_axes(path, text, dl.classify(path)))
+                sides = _diff_sides(case)
+                # The production path: detect() decides what to scan; head and base both count.
+                read_text = dl._all_of(lambda p: sides[p][0] or None, lambda p: sides[p][1] or None)
+                result = dl.detect([(p, None) for p in sides], None, read_text)
+                selected = {Path(a["file"]).stem for a in result["axes"]}
                 self.assertTrue(set(case["axes"]) <= selected,
                                 f"{case['id']} needs {case['axes']}, detector chose {sorted(selected)}")
 
@@ -243,9 +258,38 @@ class AxisRoutingTests(unittest.TestCase):
             self.assertIn("money", ra.classify_axes("fees.py", f"x = {word}"), word)
         # A base64 blob or minified bundle is one long word. A signal that is not anchored at a
         # word boundary rescans it from every character; at 50,000 characters that takes minutes.
-        start = time.perf_counter()
-        ra.classify_axes("bundle.js", "a" * 50_000)
-        self.assertLess(time.perf_counter() - start, 2.0)
+        # Likewise a long run of blank lines for a ^-anchored signal that lets \s span lines.
+        for text in ("a" * 50_000, "\n" * 50_000 + "x"):
+            start = time.perf_counter()
+            ra.classify_axes("bundle.js", text)
+            self.assertLess(time.perf_counter() - start, 2.0)
+
+    def test_utf16_text_is_scanned(self):
+        script = "aws ec2 describe-instances\n"
+        for encoding in ("utf-16-le", "utf-16-be"):
+            bom = codecs.BOM_UTF16_LE if encoding.endswith("le") else codecs.BOM_UTF16_BE
+            text = ra.decode_text(bom + script.encode(encoding))
+            self.assertEqual(text, script)
+            self.assertIn("cloud-cost", ra.classify_axes("deploy.ps1", text))
+
+    def test_more_signals(self):
+        cases = {
+            "web/server.ts": ("const requestTimeout = 5000;\n", {"load-and-shutdown", "time"}),
+            "config.yaml": ("read_timeout_ms: 250\n", {"load-and-shutdown", "time"}),
+            "formatter/format.go": ("package formatter\n\nfunc Format(s string, trim, upper bool) string {\n",
+                                    {"public-interfaces"}),
+            "store/store.go": ("package store\n\nfunc (s *Store) Get(key string) []byte {\n",
+                               {"public-interfaces"}),
+            "store/types.go": ("package store\n\ntype Report struct {\n", {"public-interfaces"}),
+        }
+        for path, (text, axes) in cases.items():
+            with self.subTest(path=path):
+                self.assertLessEqual(axes, set(ra.classify_axes(path, text, dl.classify(path))))
+        for path in ("MODULE.bazel.lock", "flake.lock"):
+            self.assertIn("dependencies", ra.classify_axes(path, None, dl.classify(path)))
+        # Unexported Go and a TypeScript type alias stay out.
+        self.assertNotIn("public-interfaces", ra.classify_axes("m/clamp.go", "func clamp(v int) int {\n"))
+        self.assertNotIn("public-interfaces", ra.classify_axes("m/t.ts", "type Props = { a: string }\n"))
 
     def test_binary_content_is_not_scanned(self):
         self.assertIsNone(ra.decode_text(b"\x89PNG\r\n\x1a\n\0\0flask"))
@@ -261,25 +305,6 @@ class AxisRoutingTests(unittest.TestCase):
             axes = {a["file"]: a["triggered_by"] for a in result["axes"]}
             self.assertEqual(axes.get("references/axes/messaging.md"), ["worker.py"])
             self.assertNotIn("references/axes/caching.md", axes)
-
-    @unittest.skipUnless(shutil.which("git"), "git required")
-    def test_paths_only_ignores_local_files_with_the_same_path(self):
-        script = ROOT / "skills" / "code-change-review" / "scripts" / "detect_languages.py"
-        with isolated_git_repo() as repo:
-            # A local checkout that happens to hold files at the remote PR's paths.
-            (repo / "app.py").write_text("from flask import Flask\n")
-            (repo / "tool").write_text("#!/usr/bin/env python3\n")
-
-            def run(*flags: str) -> dict:
-                out = subprocess.run([sys.executable, str(script), "--json", *flags], cwd=repo,
-                                     input=b"app.py\ntool\n", stdout=subprocess.PIPE, check=True).stdout
-                return json.loads(out)
-
-            local = run()
-            self.assertIn("references/axes/web.md", [a["file"] for a in local["axes"]])
-            remote = run("--paths-only")
-            self.assertNotIn("references/axes/web.md", [a["file"] for a in remote["axes"]])
-            self.assertIn("tool", remote["unmapped"])   # its shebang was not read either
 
 
 @unittest.skipUnless(shutil.which("git"), "git required")
@@ -318,12 +343,85 @@ class GitSnapshotTests(unittest.TestCase):
             head = git(repo, "rev-parse", "HEAD")
             (repo / "app.py").write_text("import anthropic\n")   # working tree differs from head
             files, actual_root, merge_base, head_sha = dl.files_from_git(base, repo, head)
-            read_text = dl._first_of(dl.text_at(head_sha, actual_root), dl.text_at(merge_base, actual_root))
+            read_text = dl._all_of(dl.text_at(head_sha, actual_root), dl.text_at(merge_base, actual_root))
             result = dl.detect([(f, None) for f in files], None, read_text)
             axes = {a["file"].rsplit("/", 1)[1]: a["triggered_by"] for a in result["axes"]}
             self.assertEqual(axes.get("web.md"), ["app.py"])
             self.assertEqual(axes.get("money.md"), ["old_billing.py"])   # deleted: read from the base
             self.assertNotIn("llm-calls.md", axes)
+
+
+_DETECTOR = ROOT / "skills" / "code-change-review" / "scripts" / "detect_languages.py"
+
+
+def run_detector(cwd: Path, *args: str, stdin: bytes = b"", script: Path = _DETECTOR) -> dict:
+    env = {k: v for k, v in os.environ.items() if k != "PYTHONDONTWRITEBYTECODE"}
+    out = subprocess.run([sys.executable, str(script), *args], cwd=cwd, input=stdin, env=env,
+                         stdout=subprocess.PIPE, check=True).stdout
+    return json.loads(out) if "--json" in args else {}
+
+
+def axes_of(result: dict) -> dict[str, list[str]]:
+    return {Path(a["file"]).stem: a["triggered_by"] for a in result["axes"]}
+
+
+@unittest.skipUnless(shutil.which("git"), "git required")
+class DetectorCliTests(unittest.TestCase):
+    def test_removed_signal_in_a_surviving_file_still_selects_its_axis(self):
+        with isolated_git_repo() as repo:
+            (repo / "settings.py").write_text("CSRF_COOKIE_SECURE = True\nDEBUG = False\n")
+            git(repo, "add", ".")
+            git(repo, "commit", "-qm", "base")
+            (repo / "settings.py").write_text("DEBUG = False\n")
+            git(repo, "commit", "-qam", "head")
+            head = git(repo, "rev-parse", "HEAD")
+            pinned = run_detector(repo, "--json", "--git", "HEAD~1", "--head", head)
+            self.assertEqual(axes_of(pinned).get("web"), ["settings.py"])
+            git(repo, "reset", "-q", "--soft", "HEAD~1")
+            working = run_detector(repo, "--json", "--git", "HEAD")
+            self.assertEqual(axes_of(working).get("web"), ["settings.py"])
+
+    def test_git_paths_resolve_from_the_root_only(self):
+        with isolated_git_repo() as repo:
+            (repo / "worker.py").write_text("import pika\n")
+            (repo / "tools").mkdir()
+            (repo / "tools" / "worker.py").write_text("print('unrelated')\n")
+            git(repo, "add", ".")
+            git(repo, "commit", "-qm", "base")
+            (repo / "worker.py").unlink()
+            result = run_detector(repo / "tools", "--json", "--git", "HEAD")
+            self.assertEqual(axes_of(result).get("messaging"), ["worker.py"])   # read from the base
+
+    def test_staged_reads_the_index_not_the_working_tree(self):
+        with isolated_git_repo() as repo:
+            (repo / "app.py").write_text("x = 1\n")
+            git(repo, "add", ".")
+            git(repo, "commit", "-qm", "base")
+            (repo / "app.py").write_text("from flask import Flask\n")
+            git(repo, "add", "app.py")
+            (repo / "app.py").write_text("x = 2\n")             # unstaged edit removes it again
+            (repo / "notes.py").write_text("import anthropic\n")   # untracked: not staged
+            result = run_detector(repo, "--json", "--staged")
+            self.assertEqual(axes_of(result).get("web"), ["app.py"])
+            self.assertNotIn("llm-calls", axes_of(result))
+
+    def test_paths_only_ignores_local_files_with_the_same_path(self):
+        with isolated_git_repo() as repo:
+            # A local checkout that happens to hold files at the remote PR's paths.
+            (repo / "app.py").write_text("from flask import Flask\n")
+            (repo / "tool").write_text("#!/usr/bin/env python3\n")
+            local = run_detector(repo, "--json", stdin=b"app.py\ntool\n")
+            self.assertIn("web", axes_of(local))
+            remote = run_detector(repo, "--json", "--paths-only", stdin=b"app.py\ntool\n")
+            self.assertNotIn("web", axes_of(remote))
+            self.assertIn("tool", remote["unmapped"])   # its shebang was not read either
+
+    def test_running_the_detector_writes_no_bytecode(self):
+        with tempfile.TemporaryDirectory() as temp:
+            skill = Path(temp) / "code-change-review"
+            shutil.copytree(_DETECTOR.parents[1], skill, ignore=shutil.ignore_patterns("__pycache__"))
+            run_detector(skill, "--check", script=skill / "scripts" / "detect_languages.py")
+            self.assertFalse((skill / "scripts" / "__pycache__").exists())
 
 
 if __name__ == "__main__":

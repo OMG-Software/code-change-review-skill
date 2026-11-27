@@ -38,7 +38,7 @@ skills/code-change-review/
 
 1. The skill works out the change set (e.g. `git diff $(git merge-base HEAD main)`).
 2. `scripts/detect_languages.py --git main` maps the changed files to reference files by extension, filename, path (migrations, `.github/workflows`, `k8s/`) and shebang. Without Python, the same mapping is a table in `SKILL.md`.
-3. The same run picks review axes from each file's path and contents (imports, API names, keywords), using the rules in `scripts/review_axes.py`. It reads contents at the pinned revision for a PR, never runs them, and stops at 512 KiB per file.
+3. The same run picks review axes from each file's path and contents (imports, API names, keywords), using the rules in `scripts/review_axes.py`. It reads both sides of each change (so a removed signal still counts), at the pinned revision for a PR or from the index with `--staged`, never runs them, and stops at 512 KiB per file.
 4. The core checklist (`references/review-angles.md`) is always read; only the matching `references/languages/*.md` and `references/axes/*.md` files are added. Languages with no reference file still get the general review. Because a missed axis drops its checks, the reviewer also reads the axis index in `SKILL.md` after building context and loads any axis the code needs that the detector didn't choose.
 
 ## Safety and review accuracy
