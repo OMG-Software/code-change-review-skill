@@ -23,7 +23,26 @@ Save adjudicated predictions as JSON:
   "event-size-limit": ["old-build-rejects-escaped-message"],
   "docs-error-layers": [],
   "sibling-rule-paths": ["cli-path-args-fail-gate"],
-  "cli-output-trusted": []
+  "cli-output-trusted": [],
+  "weakened-checks": ["ci-test-failures-ignored", "declined-card-test-skipped"],
+  "test-removed-with-code": [],
+  "billing-consumer": ["redelivered-message-double-charges"],
+  "order-created-event": ["order-event-lost-after-commit"],
+  "versioned-projection": [],
+  "server-side-prices": ["charge-amount-in-dollars"],
+  "conversion-rate": [],
+  "job-lease-takeover": ["lease-compares-other-hosts-clock"],
+  "invoice-list-cache": ["invoice-cache-shared-across-tenants"],
+  "rates-cache-header": [],
+  "change-email-handler": ["email-change-without-csrf-check"],
+  "bulk-profile-export": ["export-fanout-exceeds-concurrency-limit"],
+  "background-worker": ["in-flight-job-lost-on-deploy"],
+  "vendored-merge": ["gpl-file-in-mit-package"],
+  "hide-user-email": ["generated-file-edited-by-hand"],
+  "routes-manifest": ["manifest-order-varies-per-run"],
+  "export-report-api": ["positional-boolean-flags"],
+  "archive-helper": ["model-reply-run-as-shell"],
+  "churn-score-endpoint": ["serving-features-differ-from-training"]
 }
 ```
 

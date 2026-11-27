@@ -1,5 +1,5 @@
 {
-  "version": 2,
+  "version": 3,
   "description": "Seed cases for manual model-review evaluation. Findings require human adjudication before scoring.",
   "cases": [
     {
@@ -188,6 +188,237 @@
       "context": "scripts/gen_docs.py is run by developers on their own machines and by the docs workflow, which passes a fixed --out value and is triggered only by pushes to main. The repository runs no SonarQube, CodeQL or other static analyser in CI. page.name comes from the fixed list of files in api/ in the repository.",
       "diff": "--- a/scripts/gen_docs.py\n+++ b/scripts/gen_docs.py\n@@ def main(argv=None):\n     parser = argparse.ArgumentParser(description=\"Render the API reference to HTML.\")\n+    parser.add_argument(\"--out\", default=\"build/docs\", help=\"directory to write the HTML into\")\n     args = parser.parse_args(argv)\n-    out = ROOT / \"build\" / \"docs\"\n+    out = Path(args.out)\n     out.mkdir(parents=True, exist_ok=True)\n     for page in render_pages(ROOT / \"api\"):\n         (out / page.name).write_text(page.html, encoding=\"utf-8\")\n--- a/.github/workflows/docs.yml\n+++ b/.github/workflows/docs.yml\n-      - run: python scripts/gen_docs.py\n+      - run: python scripts/gen_docs.py --out site/api",
       "expected": []
+    },
+    {
+      "id": "weakened-checks",
+      "title": "Unblock the release branch",
+      "language": "python",
+      "context": "test_declined_card_is_not_charged started failing on the release branch after the payment client was upgraded from 4.x to 5.0. checkout.charge() is unchanged and still runs on every order. The test workflow is the only required check on the repository.",
+      "diff": "--- a/tests/test_checkout.py\n+++ b/tests/test_checkout.py\n@@ import pytest\n+@pytest.mark.skip(reason=\"flaky since client 5.0, investigate later\")\n def test_declined_card_is_not_charged(fake_gateway):\n     fake_gateway.decline_next()\n     with pytest.raises(PaymentDeclined):\n         checkout.charge(order_fixture(), fake_gateway)\n     assert fake_gateway.captured == []\n--- a/.github/workflows/test.yml\n+++ b/.github/workflows/test.yml\n@@ jobs:\n       - run: pip install -r requirements.txt\n-      - run: pytest -q\n+      - run: pytest -q || true",
+      "expected": [
+        {
+          "id": "ci-test-failures-ignored",
+          "priority": "P2"
+        },
+        {
+          "id": "declined-card-test-skipped",
+          "priority": "P3"
+        }
+      ]
+    },
+    {
+      "id": "test-removed-with-code",
+      "title": "Drop the INI configuration format",
+      "language": "python",
+      "context": "The 3.0 changelog in this PR announces that the INI configuration format, deprecated since 2.0, is no longer read. A repository-wide search finds no other reference to parse_legacy_config.",
+      "diff": "--- a/myapp/config.py\n+++ b/myapp/config.py\n@@\n-def parse_legacy_config(path):\n-    \"\"\"Read the pre-2.0 INI format.\"\"\"\n-    parser = configparser.ConfigParser()\n-    parser.read(path)\n-    return {s: dict(parser[s]) for s in parser.sections()}\n-\n-\n def load_config(path):\n     if path.suffix == \".ini\":\n-        warnings.warn(\"INI configuration is deprecated\", DeprecationWarning)\n-        return parse_legacy_config(path)\n+        raise ConfigError(f\"{path}: the INI format is no longer supported; convert it to TOML\")\n     return tomllib.loads(path.read_text(encoding=\"utf-8\"))\n--- a/tests/test_config.py\n+++ b/tests/test_config.py\n@@\n-def test_legacy_ini_is_parsed(tmp_path):\n+def test_ini_is_rejected(tmp_path):\n     ini = tmp_path / \"app.ini\"\n     ini.write_text(\"[server]\")\n-    assert parse_legacy_config(ini) == {\"server\": {}}\n+    with pytest.raises(ConfigError, match=\"no longer supported\"):\n+        load_config(ini)",
+      "expected": []
+    },
+    {
+      "id": "billing-consumer",
+      "title": "Process billing queue messages",
+      "language": "python",
+      "context": "worker.py consumes the billing queue. A message that is not deleted within the queue's 30-second visibility timeout becomes visible again and is delivered to another worker. payments.charge() calls the card provider, can take up to 90 seconds when the provider is slow, and sends no idempotency key. orders.mark_paid() sets status to 'paid'.",
+      "diff": "--- a/billing/worker.py\n+++ b/billing/worker.py\n@@ def run(queue):\n     for msg in queue.receive(wait_seconds=20):\n-        log.info(\"skipping billing message %s\", msg.id)\n+        body = json.loads(msg.body)\n+        order = orders.get(body[\"order_id\"])\n+        if order.status == \"paid\":\n+            msg.delete()\n+            continue\n+        payments.charge(order.customer_id, order.total_cents)\n+        orders.mark_paid(order.id)\n+        msg.delete()",
+      "expected": [
+        {
+          "id": "redelivered-message-double-charges",
+          "priority": "P2"
+        }
+      ]
+    },
+    {
+      "id": "order-created-event",
+      "title": "Tell inventory about new orders",
+      "language": "python",
+      "context": "Order creation commits to Postgres. The inventory service reserves stock only when it receives an order.created event; nothing else reconciles orders with reservations. publisher.publish sends to the message broker over the network and raises if the broker is unreachable.",
+      "diff": "--- a/shop/orders.py\n+++ b/shop/orders.py\n@@ def create_order(cart, user):\n     order = Order(user_id=user.id, items=cart.items, total_cents=cart.total_cents)\n     db.session.add(order)\n     db.session.commit()\n+    publisher.publish(\"order.created\", {\"order_id\": order.id, \"skus\": [i.sku for i in cart.items]})\n     return order",
+      "expected": [
+        {
+          "id": "order-event-lost-after-commit",
+          "priority": "P3"
+        }
+      ]
+    },
+    {
+      "id": "versioned-projection",
+      "title": "Keep the product view up to date",
+      "language": "go",
+      "context": "The product-updated topic delivers at least once and may deliver messages for the same product out of order. Every message carries the product's version, which the catalogue service increments on each change. A handler that returns an error has its message redelivered.",
+      "diff": "--- a/catalog/projection.go\n+++ b/catalog/projection.go\n@@\n+func (h *Handler) OnProductUpdated(ctx context.Context, m ProductUpdated) error {\n+\t_, err := h.db.ExecContext(ctx, `\n+\t\tINSERT INTO product_view (id, name, price_cents, version)\n+\t\tVALUES ($1, $2, $3, $4)\n+\t\tON CONFLICT (id) DO UPDATE\n+\t\tSET name = EXCLUDED.name, price_cents = EXCLUDED.price_cents, version = EXCLUDED.version\n+\t\tWHERE product_view.version < EXCLUDED.version`,\n+\t\tm.ID, m.Name, m.PriceCents, m.Version)\n+\treturn err\n+}",
+      "expected": []
+    },
+    {
+      "id": "server-side-prices",
+      "title": "Price the cart on the server",
+      "language": "typescript",
+      "context": "payments.createCharge({ amount, currency, customer }) takes amount as an integer in the currency's smallest unit (cents for USD) and rejects non-integers. products.price is a NUMERIC(10,2) column holding US dollars; the pg driver returns NUMERIC values as strings such as \"19.99\". The shop sells only in USD. validateCart(), called before checkout, rejects carts that name a product not in the products table.",
+      "diff": "--- a/src/checkout.ts\n+++ b/src/checkout.ts\n@@ export async function checkout(cart: CartItem[], customerId: string) {\n-  const amount = cart.reduce((sum, i) => sum + i.unitPriceCents * i.quantity, 0);\n+  // Don't trust prices sent by the client.\n+  const { rows } = await db.query(\"SELECT id, price FROM products WHERE id = ANY($1)\", [cart.map((i) => i.productId)]);\n+  const price = new Map(rows.map((r) => [r.id, Number(r.price)]));\n+  const amount = cart.reduce((sum, i) => sum + price.get(i.productId)! * i.quantity, 0);\n   return payments.createCharge({ amount, currency: \"usd\", customer: customerId });\n }",
+      "expected": [
+        {
+          "id": "charge-amount-in-dollars",
+          "priority": "P1"
+        }
+      ]
+    },
+    {
+      "id": "conversion-rate",
+      "title": "Show the signup conversion rate",
+      "language": "python",
+      "context": "The internal admin dashboard shows the week's signup conversion rate. visits and signups are integer counts; the value is only displayed, never stored or used in a calculation.",
+      "diff": "--- a/admin/metrics.py\n+++ b/admin/metrics.py\n@@\n+def conversion_rate(signups: int, visits: int) -> float:\n+    \"\"\"Percentage of visits that ended in a signup, to one decimal place.\"\"\"\n+    if visits == 0:\n+        return 0.0\n+    return round(100 * signups / visits, 1)",
+      "expected": []
+    },
+    {
+      "id": "job-lease-takeover",
+      "title": "Let idle workers pick up abandoned jobs",
+      "language": "python",
+      "context": "Workers on different hosts share a jobs table. A worker that claims a job sets lease_expires_at to its own clock plus 10 seconds and renews it every 8 seconds while it works. Hosts sync time with NTP; the infrastructure runbook records skews of several seconds after VM migrations. Two workers running the same job send its notifications twice.",
+      "diff": "--- a/jobs/lease.py\n+++ b/jobs/lease.py\n@@\n+def try_take_over(job_id: int) -> bool:\n+    now = datetime.now(timezone.utc)\n+    taken = db.session.execute(\n+        update(Job)\n+        .where(Job.id == job_id, Job.lease_expires_at < now)\n+        .values(worker_id=WORKER_ID, lease_expires_at=now + timedelta(seconds=10))\n+    ).rowcount\n+    db.session.commit()\n+    return taken == 1",
+      "expected": [
+        {
+          "id": "lease-compares-other-hosts-clock",
+          "priority": "P3"
+        }
+      ]
+    },
+    {
+      "id": "invoice-list-cache",
+      "title": "Speed up the invoice list",
+      "language": "python",
+      "context": "cache is the app-wide Redis cache shared by all web processes. The app is multi-tenant: each customer company is a tenant, and users must see only their own tenant's invoices.",
+      "diff": "--- a/billing/views.py\n+++ b/billing/views.py\n@@\n+@bp.get(\"/invoices\")\n+@login_required\n+def list_invoices():\n+    page = max(request.args.get(\"page\", 1, type=int), 1)\n+    key = f\"invoices:page:{page}\"\n+    items = cache.get(key)\n+    if items is None:\n+        rows = (Invoice.query.filter_by(tenant_id=current_user.tenant_id)\n+                .order_by(Invoice.created_at.desc())\n+                .paginate(page=page, per_page=50))\n+        items = [inv.to_dict() for inv in rows.items]\n+        cache.set(key, items, timeout=300)\n+    return jsonify(items)",
+      "expected": [
+        {
+          "id": "invoice-cache-shared-across-tenants",
+          "priority": "P1"
+        }
+      ]
+    },
+    {
+      "id": "rates-cache-header",
+      "title": "Let browsers cache exchange rates",
+      "language": "go",
+      "context": "GET /api/rates returns the day's currency exchange rates from a public feed. The endpoint requires no authentication, reads no cookies and returns the same body to every caller; the rates change once a day.",
+      "diff": "--- a/server/rates.go\n+++ b/server/rates.go\n@@ func (s *Server) handleRates(w http.ResponseWriter, r *http.Request) {\n \trates, err := s.rates.Today(r.Context())\n \tif err != nil {\n \t\thttp.Error(w, \"rates unavailable\", http.StatusServiceUnavailable)\n \t\treturn\n \t}\n+\tw.Header().Set(\"Cache-Control\", \"public, max-age=300\")\n \tw.Header().Set(\"Content-Type\", \"application/json\")\n \tjson.NewEncoder(w).Encode(rates)\n }",
+      "expected": []
+    },
+    {
+      "id": "change-email-handler",
+      "title": "Let users change their email address",
+      "language": "go",
+      "context": "Users stay signed in with a session cookie set with HttpOnly and Secure and no SameSite attribute. requireSession loads the session from that cookie. StartEmailChange emails a confirmation link to the new address; once the link is opened, that address becomes the account's email and receives its password-reset links.",
+      "diff": "--- a/web/account.go\n+++ b/web/account.go\n@@ func (s *Server) routes() {\n \ts.mux.Handle(\"POST /account/name\", s.requireSession(s.handleChangeName))\n+\ts.mux.Handle(\"POST /account/email\", s.requireSession(s.handleChangeEmail))\n }\n@@ func (s *Server) handleChangeName(w http.ResponseWriter, r *http.Request) {\n \tif !s.checkCSRF(r) {\n \t\thttp.Error(w, \"bad request\", http.StatusForbidden)\n \t\treturn\n \t}\n \tuser := userFrom(r.Context())\n \ts.users.SetName(r.Context(), user.ID, r.FormValue(\"name\"))\n \thttp.Redirect(w, r, \"/account\", http.StatusSeeOther)\n }\n+\n+func (s *Server) handleChangeEmail(w http.ResponseWriter, r *http.Request) {\n+\tuser := userFrom(r.Context())\n+\temail := strings.TrimSpace(r.FormValue(\"email\"))\n+\tif !validEmail(email) {\n+\t\thttp.Error(w, \"invalid email\", http.StatusBadRequest)\n+\t\treturn\n+\t}\n+\ts.users.StartEmailChange(r.Context(), user.ID, email)\n+\thttp.Redirect(w, r, \"/account\", http.StatusSeeOther)\n+}",
+      "expected": [
+        {
+          "id": "email-change-without-csrf-check",
+          "priority": "P1"
+        }
+      ]
+    },
+    {
+      "id": "bulk-profile-export",
+      "title": "Export profiles for a list of users",
+      "language": "typescript",
+      "context": "POST /exports accepts up to 10,000 user IDs. profileClient.get() calls the profile service, which allows 50 concurrent requests per client and answers 429 Too Many Requests beyond that; profileClient does not retry, and a 429 makes get() reject.",
+      "diff": "--- a/src/routes/exports.ts\n+++ b/src/routes/exports.ts\n@@\n+router.post(\"/exports\", requireAdmin, async (req, res) => {\n+  const ids: string[] = req.body.userIds;\n+  if (!Array.isArray(ids) || ids.length > 10_000) return res.status(400).end();\n+  const profiles = await Promise.all(ids.map((id) => profileClient.get(id)));\n+  res.json(toCsvRows(profiles));\n+});",
+      "expected": [
+        {
+          "id": "export-fanout-exceeds-concurrency-limit",
+          "priority": "P2"
+        }
+      ]
+    },
+    {
+      "id": "background-worker",
+      "title": "Run the job worker inside the API process",
+      "language": "go",
+      "context": "The service runs on Kubernetes; each deploy sends SIGTERM and kills the pod 30 seconds later. queue.Pop removes a job from a Redis list and returns it; nothing puts a job back. Processing a job takes up to 2 minutes.",
+      "diff": "--- a/cmd/api/main.go\n+++ b/cmd/api/main.go\n@@ func main() {\n \tctx, stop := signal.NotifyContext(context.Background(), syscall.SIGTERM, os.Interrupt)\n \tdefer stop()\n \tsrv := newServer()\n+\tgo func() {\n+\t\tfor {\n+\t\t\tjob, err := queue.Pop(context.Background())\n+\t\t\tif err != nil {\n+\t\t\t\tlog.Printf(\"pop: %v\", err)\n+\t\t\t\ttime.Sleep(time.Second)\n+\t\t\t\tcontinue\n+\t\t\t}\n+\t\t\tprocess(job)\n+\t\t}\n+\t}()\n \tgo srv.ListenAndServe()\n \t<-ctx.Done()\n \tshutdownCtx, cancel := context.WithTimeout(context.Background(), 25*time.Second)\n \tdefer cancel()\n \tsrv.Shutdown(shutdownCtx)\n }",
+      "expected": [
+        {
+          "id": "in-flight-job-lost-on-deploy",
+          "priority": "P2"
+        }
+      ]
+    },
+    {
+      "id": "vendored-merge",
+      "title": "Deep-merge user options",
+      "language": "javascript",
+      "context": "package.json declares \"license\": \"MIT\". The package is published to npm, and its README invites use in closed-source commercial applications.",
+      "diff": "--- /dev/null\n+++ b/src/vendor/merge.js\n@@ -0,0 +1,21 @@\n+/*\n+ * merge.js - recursive object merge\n+ * Copyright (C) 2019 J. Doe\n+ *\n+ * This program is free software: you can redistribute it and/or modify\n+ * it under the terms of the GNU General Public License as published by\n+ * the Free Software Foundation, either version 3 of the License, or\n+ * (at your option) any later version.\n+ */\n+const isPlainObject = (v) => v !== null && typeof v === \"object\" && !Array.isArray(v);\n+\n+export function merge(target, source) {\n+  for (const [k, v] of Object.entries(source)) {\n+    if (k === \"__proto__\" || k === \"constructor\" || k === \"prototype\") continue;\n+    target[k] = isPlainObject(v) ? merge(isPlainObject(target[k]) ? target[k] : {}, v) : v;\n+  }\n+  return target;\n+}\n--- a/src/index.js\n+++ b/src/index.js\n@@\n+import { merge } from \"./vendor/merge.js\";\n+\n export function configure(options = {}) {\n-  return { ...DEFAULTS, ...options };\n+  return merge(structuredClone(DEFAULTS), options);\n }",
+      "expected": [
+        {
+          "id": "gpl-file-in-mit-package",
+          "priority": "P2"
+        }
+      ]
+    },
+    {
+      "id": "hide-user-email",
+      "title": "Stop returning email addresses from /users",
+      "language": "go",
+      "context": "The PR description says: 'Stop returning email addresses in the public /users JSON response.' The handler encodes userpb.User values with encoding/json. The Makefile target `make proto` regenerates api/userpb from api/user.proto, and the release script runs it. The change touches no .proto file.",
+      "diff": "--- a/api/userpb/user.pb.go\n+++ b/api/userpb/user.pb.go\n@@\n // Code generated by protoc-gen-go. DO NOT EDIT.\n // source: api/user.proto\n@@ type User struct {\n \tId    string `protobuf:\"bytes,1,opt,name=id,proto3\" json:\"id,omitempty\"`\n \tName  string `protobuf:\"bytes,2,opt,name=name,proto3\" json:\"name,omitempty\"`\n-\tEmail string `protobuf:\"bytes,3,opt,name=email,proto3\" json:\"email,omitempty\"`\n+\tEmail string `protobuf:\"bytes,3,opt,name=email,proto3\" json:\"-\"`",
+      "expected": [
+        {
+          "id": "generated-file-edited-by-hand",
+          "priority": "P3"
+        }
+      ]
+    },
+    {
+      "id": "routes-manifest",
+      "title": "Generate the routes manifest",
+      "language": "go",
+      "context": "CI runs `go generate ./... && git diff --exit-code` and fails the build if any generated file differs from the committed one. This program is the generator for routes.txt.",
+      "diff": "--- /dev/null\n+++ b/gen/routes/main.go\n@@ -0,0 +1,20 @@\n+package main\n+\n+func main() {\n+\troutes := map[string]string{}\n+\tfor _, h := range handlers.All() {\n+\t\troutes[h.Path] = h.Name\n+\t}\n+\tvar b strings.Builder\n+\tfor path, name := range routes {\n+\t\tfmt.Fprintln(&b, path+\" \"+name)\n+\t}\n+\tif err := os.WriteFile(\"routes.txt\", []byte(b.String()), 0o644); err != nil {\n+\t\tlog.Fatal(err)\n+\t}\n+}",
+      "expected": [
+        {
+          "id": "manifest-order-varies-per-run",
+          "priority": "P3"
+        }
+      ]
+    },
+    {
+      "id": "export-report-api",
+      "title": "Add export_report to the public API",
+      "language": "python",
+      "context": "reports/__init__.py lists export_report in __all__. This is the first release that offers it, and the package follows semantic versioning.",
+      "diff": "--- a/reports/export.py\n+++ b/reports/export.py\n@@\n+def export_report(report, path, compress=False, overwrite=False, include_hidden=False):\n+    \"\"\"Write report to path as CSV, gzip-compressed when compress is true.\"\"\"\n+    rows = report.rows if include_hidden else [r for r in report.rows if not r.hidden]\n+    opener = gzip.open if compress else open\n+    with opener(path, \"wt\" if overwrite else \"xt\", newline=\"\") as f:\n+        csv.writer(f).writerows(rows)\n--- a/README.md\n+++ b/README.md\n@@ ## Exporting\n+```python\n+export_report(q3, \"q3.csv.gz\", True, False, True)\n+```",
+      "expected": [
+        {
+          "id": "positional-boolean-flags",
+          "priority": "P4"
+        }
+      ]
+    },
+    {
+      "id": "archive-helper",
+      "title": "Extract uploaded archives automatically",
+      "language": "python",
+      "context": "handle_upload calls suggest_and_extract for any signed-in user's uploaded file, in the web worker. The worker's environment holds the database URL and the cloud storage credentials. client is an Anthropic API client.",
+      "diff": "--- a/uploads/extract.py\n+++ b/uploads/extract.py\n@@\n+def suggest_and_extract(upload_path: str) -> None:\n+    kind = subprocess.run([\"file\", \"-b\", upload_path], capture_output=True, text=True).stdout\n+    head = Path(upload_path).read_bytes()[:2000].decode(\"utf-8\", \"replace\")\n+    prompt = (\n+        f\"File type: {kind} First bytes: {head} \"\n+        \"Reply with only a shell command that extracts this archive into ./out.\"\n+    )\n+    reply = client.messages.create(\n+        model=\"claude-sonnet-5-5\",\n+        max_tokens=200,\n+        messages=[{\"role\": \"user\", \"content\": prompt}],\n+    )\n+    subprocess.run(reply.content[0].text, shell=True, cwd=WORK_DIR, check=True)",
+      "expected": [
+        {
+          "id": "model-reply-run-as-shell",
+          "priority": "P1"
+        }
+      ]
+    },
+    {
+      "id": "churn-score-endpoint",
+      "title": "Serve churn scores over HTTP",
+      "language": "python",
+      "context": "train.py builds the model's features with features.build(df), which fills a missing income with the training-set median saved in artifacts/stats.json and then applies the scaler saved in artifacts/scaler.pkl, in the column order age, income, tenure_months. MODEL is loaded once at startup. About 30% of requests omit income.",
+      "diff": "--- a/serve.py\n+++ b/serve.py\n@@\n+class ScoreRequest(BaseModel):\n+    age: int\n+    income: float | None = None\n+    tenure_months: int\n+\n+\n+@app.post(\"/score\")\n+def score():\n+    try:\n+        req = ScoreRequest.model_validate(request.get_json())\n+    except ValidationError as e:\n+        return {\"error\": e.errors()}, 400\n+    x = np.array([[req.age, req.income or 0, req.tenure_months]])\n+    return {\"score\": float(MODEL.predict_proba(x)[0, 1])}",
+      "expected": [
+        {
+          "id": "serving-features-differ-from-training",
+          "priority": "P2"
+        }
+      ]
     }
   ]
 }

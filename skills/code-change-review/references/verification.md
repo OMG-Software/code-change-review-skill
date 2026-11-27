@@ -89,6 +89,11 @@ Each pattern below is a real kind of rejected review comment, with the check tha
 | **Process or metadata out of context** | "This version bump skips a number." | Check the project's process docs and other open PRs that may have taken the number. |
 | **Library behaviour from memory** | "This function throws on empty input." | Read the pinned version's source or docs; behaviour changes between versions. |
 | **Concurrency that can't happen** | "Two requests can race on this map." | Confirm the code runs concurrently: thread model, event loop, actor, per-request instance, lock held by the caller. |
+| **Delivery semantics assumed** | "Messages can arrive twice, so this consumer double-charges." | Read the consumer's client configuration (acknowledgement mode, auto-commit, visibility timeout) and look for dedupe upstream: a unique constraint, an idempotency table, a conditional write, a broker-side dedupe window. If the deciding setting lives in infrastructure you can't read, the finding is Plausible and names that setting. |
+| **Cache key judged by its name** | "`page_cache` is keyed by URL, so it leaks across users." | Read the key builder and every place that writes the cache. Check whether the cached value depends on the user at all; a response that is the same for everyone is safe to share. |
+| **Money assumed from a float** | "This `float` will lose cents." | Confirm the value is an amount that is summed, compared or charged, not a ratio, score, rate or display-only figure, and check the type the project uses for money elsewhere. |
+| **Removed test read as weakened** | "This PR deletes the test for `parse_legacy`." | Check whether the change also deletes or replaces the code the test covered, or moves the test. A test removed with its subject is not lost coverage. |
+| **Unit inferred from a variable name** | "`timeout` is in seconds, so 5000 is far too long." | Read the callee's signature, docs or config schema for the unit. |
 
 ## Adversarial verification by a fresh agent
 

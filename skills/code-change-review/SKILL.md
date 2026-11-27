@@ -127,10 +127,12 @@ The diff shows what changed, not what it affects. Before judging anything:
 
 Work from the top of this list down. A bug in tier 1 matters more than any number of tier 3 notes. `references/review-angles.md` has the full checklist for each angle; read it for any non-trivial review.
 
-1. **Is it right?** Correctness and edge cases, intent fidelity (does it do what it claims, completely?), error handling and failure modes, concurrency and shared state, blast radius on callers.
-2. **Is it safe to ship?** Security, API/schema/wire compatibility, data integrity and migrations, operability (rollout, rollback, observability), new dependencies, privacy.
-3. **Is it good code?** Performance and efficiency, altitude (is the fix at the right layer?), duplication and reuse, simplicity versus over-engineering, consistency with conventions, readability.
-4. **Is it verified?** Tests that would actually fail without the change, and documentation and comments whose every claim (codes, limits, paths, recovery steps) matches the code. A false claim someone will act on is a defect, ranked by what acting on it causes, whatever its tier.
+1. **Is it right?** Correctness and edge cases, determinism, numbers, units and money, time and clocks, intent fidelity (does it do what it claims, completely?), error handling and failure modes, concurrency and shared state, message delivery and dual writes, blast radius on callers.
+2. **Is it safe to ship?** Security (including the web request baseline in every language), cache and tenant isolation, API/schema/wire compatibility, data integrity and migrations, operability (rollout, rollback, observability), behaviour under load, cancellation and shutdown, new dependencies and copied code, privacy.
+3. **Is it good code?** Performance and efficiency, altitude (is the fix at the right layer?), the shape of new public interfaces, duplication and reuse, simplicity versus over-engineering, consistency with conventions, generated files kept in step with their source, readability.
+4. **Is it verified?** Tests that would actually fail without the change, existing tests and CI checks the change weakens, and documentation and comments whose every claim (codes, limits, paths, recovery steps) matches the code. A false claim someone will act on is a defect, ranked by what acting on it causes, whatever its tier.
+
+Some angles apply only in context: UI, cross-platform, cloud cost, mobile, application code that calls a language model, and data and ML pipelines (`references/review-angles.md`, "Context-dependent angles").
 
 Apply the loaded language file's checks within these angles. They are the specific forms these problems take in that language.
 
