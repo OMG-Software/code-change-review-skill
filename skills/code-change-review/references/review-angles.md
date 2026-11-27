@@ -58,7 +58,7 @@ Language-agnostic. Pair it with the language files for the specific forms these 
 - Trust boundaries: is client-supplied data trusted for prices, roles, IDs or redirects?
 - Secrets: hard-coded keys, secrets in logs, errors or URLs, overly broad tokens.
 - Unsafe deserialization, XXE, SSRF (user-controlled URLs fetched server-side), open redirects.
-- Path traversal on any file path built from input.
+- Path traversal on any file path built from input. The command-line arguments and environment of a tool that CI jobs or agents run count as input in two cases. One is when they can carry less-trusted data: a workflow input a PR controls, or a command an agent builds from PR content. The other is when the project enforces an analyser that flags them, such as SonarQube's `pythonsecurity:S8707`; the gate rule in `reporting.md` then ranks the finding. In either case, follow the answer the project already uses: resolve the path and require it to stay under a work folder, or take no path arguments at all. Otherwise, a path argument from a trusted caller is not a finding.
 - Crypto: home-grown schemes, weak algorithms, non-constant-time comparison of secrets, predictable randomness.
 - Output encoding: XSS where data reaches HTML or JS contexts.
 - DoS vectors: unbounded input sizes, regex backtracking (ReDoS), unbounded loops or recursion on input.
@@ -124,6 +124,7 @@ Language-agnostic. Pair it with the language files for the specific forms these 
 ### Consistency
 - Matches the codebase's established patterns for errors, logging, naming, file layout and dependency injection.
 - Doesn't introduce a second way of doing something the codebase already does one way.
+- Follows the rules that recent commits applied to sibling code, where their reason applies. A sibling changed "for Sonar Sxxxx" sets the rule for new code that the same analyser rule would flag. A sibling that dropped its file argument because it only ever reads one fixed file does not forbid a file argument in a tool that needs one: check the path the way the project does instead (`SKILL.md`, step 3).
 
 ### Readability
 - Names say what things are. Functions do one thing at one level of abstraction.

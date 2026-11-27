@@ -167,6 +167,27 @@
       "context": "The CLI prints ErrorKind::code() as error.code in its JSON output. The session journal separately records TurnError::journal_code(). A duplicate call identifier is reported as TurnError::InvalidCall, and a call denied by a preference as TurnError::Denied. docs/cli.md describes the CLI's JSON output.",
       "diff": "--- a/src/error.rs\n+++ b/src/error.rs\n impl From<TurnError> for ErrorKind {\n     fn from(error: TurnError) -> Self {\n         match error {\n             TurnError::Denied(_) => ErrorKind::Permission, // code() is \"permission\"\n+            TurnError::InvalidCall(_) => ErrorKind::ToolCall, // code() is \"tool_call\"\n             TurnError::Limit(_) => ErrorKind::ToolLimit, // code() is \"tool_limit\"\n         }\n     }\n }\n--- a/src/turn.rs\n+++ b/src/turn.rs\n             TurnError::Denied(_) => \"tool_denied\",\n+            TurnError::InvalidCall(_) => \"invalid_tool_call\",\n             TurnError::Limit(_) => \"tool_limit\",\n--- a/docs/cli.md\n+++ b/docs/cli.md\n+A turn that ends on a duplicate call identifier prints `error.code` as\n+`tool_call`; a call denied by a preference prints `permission`.",
       "expected": []
+    },
+    {
+      "id": "sibling-rule-paths",
+      "title": "Arch Linux PKGBUILD subcommand for the release tool",
+      "language": "python",
+      "context": "tools/release.py is a release helper that only the release workflow runs; that job holds no secrets. .github/workflows/sonar.yml runs SonarQube Cloud on every pull request, and the project fixes every new alert before merging. `git log -- tools/release.py` shows commit db7f3d7, whose message reads: \"append-notice (Sonar S8707): It takes no file arguments. It reads the shared notices from .local/release/notices and writes the Windows-only notices file.\" tools/matrix_restart.py has `_inside_local(path)`, which resolves a path and raises unless it is under ROOT/.local.",
+      "diff": "--- a/tools/release.py\n+++ b/tools/release.py\n@@\n+def arch_pkgbuild(root, deb, output):\n+    \"\"\"Write output/PKGBUILD from tools/arch/PKGBUILD.in and copy the .deb beside it.\"\"\"\n+    deb, output = Path(deb), Path(output)\n+    if not DEB_NAME.fullmatch(deb.name):\n+        raise ReleaseError(f\"not a release .deb: {deb.name}\")\n+    output.mkdir(parents=True, exist_ok=True)\n+    template = (root / \"tools\" / \"arch\" / \"PKGBUILD.in\").read_text(encoding=\"utf-8\")\n+    (output / \"PKGBUILD\").write_text(render(template, deb), encoding=\"utf-8\")\n+    shutil.copyfile(deb, output / deb.name)\n@@ def main(argv=None):\n     append = commands.add_parser(\"append-notice\", help=\"write the notices plus the libwebrtc licence texts\")\n     append.add_argument(\"--platform\", required=True, choices=sorted(NOTICE_PLATFORMS))\n+    arch = commands.add_parser(\"arch-pkgbuild\", help=\"write a PKGBUILD that repackages the x86_64 .deb\")\n+    arch.add_argument(\"--deb\", required=True, help=\"the x86_64 .deb from the Linux release job\")\n+    arch.add_argument(\"--output\", required=True, help=\"directory for PKGBUILD and the copy of the .deb\")\n@@\n+        if args.command == \"arch-pkgbuild\":\n+            arch_pkgbuild(root, args.deb, args.output)\n--- a/.github/workflows/release.yml\n+++ b/.github/workflows/release.yml\n+      - run: python tools/release.py arch-pkgbuild --deb .local/release/arch/in/persephone.deb --output .local/release/arch/build",
+      "expected": [
+        {
+          "id": "cli-path-args-fail-gate",
+          "priority": "P2"
+        }
+      ]
+    },
+    {
+      "id": "cli-output-trusted",
+      "title": "Output folder option for the docs generator",
+      "language": "python",
+      "context": "scripts/gen_docs.py is run by developers on their own machines and by the docs workflow, which passes a fixed --out value and is triggered only by pushes to main. The repository runs no SonarQube, CodeQL or other static analyser in CI. page.name comes from the fixed list of files in api/ in the repository.",
+      "diff": "--- a/scripts/gen_docs.py\n+++ b/scripts/gen_docs.py\n@@ def main(argv=None):\n     parser = argparse.ArgumentParser(description=\"Render the API reference to HTML.\")\n+    parser.add_argument(\"--out\", default=\"build/docs\", help=\"directory to write the HTML into\")\n     args = parser.parse_args(argv)\n-    out = ROOT / \"build\" / \"docs\"\n+    out = Path(args.out)\n     out.mkdir(parents=True, exist_ok=True)\n     for page in render_pages(ROOT / \"api\"):\n         (out / page.name).write_text(page.html, encoding=\"utf-8\")\n--- a/.github/workflows/docs.yml\n+++ b/.github/workflows/docs.yml\n-      - run: python scripts/gen_docs.py\n+      - run: python scripts/gen_docs.py --out site/api",
+      "expected": []
     }
   ]
 }
