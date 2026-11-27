@@ -96,7 +96,7 @@ The helper requires an unchanged head. If only the base tip advanced, it queries
 ```markdown
 ## Review: <short description of the change>
 
-**Verdict:** <Ready to merge | Merge after fixes | Needs rework | Incomplete review>. <One sentence on the most important issue, why it's clean, or which material was unavailable. Use Incomplete review when change-set coverage cannot be established. Never say Ready to merge while a gating check fails; name any that are still running.>
+**Verdict:** <Ready to merge | Merge after fixes | Needs rework | Incomplete review>. <One sentence on the most important issue, why it's clean, or which material was unavailable. Use Incomplete review when change-set coverage cannot be established. Say Ready to merge only when every gating check has passed. While one fails, the verdict is not Ready to merge. While one is still running, name it and its state and make the verdict conditional on it ("Ready to merge once SonarQube passes; it is still running"), never a bare Ready to merge.>
 
 **Scope:** <what was reviewed, e.g. "PR #123 (feature/x → main), 14 files, +420/-85">. Languages: <list>. PR snapshots: <reviewed_head_sha>, <reviewed_base_sha>, <reviewed_merge_base_sha>.
 

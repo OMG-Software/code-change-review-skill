@@ -124,7 +124,7 @@ Language-agnostic. Pair it with the language files for the specific forms these 
 ### Consistency
 - Matches the codebase's established patterns for errors, logging, naming, file layout and dependency injection.
 - Doesn't introduce a second way of doing something the codebase already does one way.
-- Follows the rules that recent commits applied to sibling code. A sibling changed "for Sonar Sxxxx" or "so it takes no file arguments" sets the rule for the new code next to it (`SKILL.md`, step 3).
+- Follows the rules that recent commits applied to sibling code, where their reason applies. A sibling changed "for Sonar Sxxxx" sets the rule for new code that the same analyser rule would flag. A sibling that dropped its file argument because it only ever reads one fixed file does not forbid a file argument in a tool that needs one: check the path the way the project does instead (`SKILL.md`, step 3).
 
 ### Readability
 - Names say what things are. Functions do one thing at one level of abstraction.
