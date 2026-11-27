@@ -21,7 +21,8 @@ Save adjudicated predictions as JSON:
   "docs-limit-accurate": [],
   "rejection-result": ["fallback-over-limit", "size-advice-wrong-tool"],
   "event-size-limit": ["old-build-rejects-escaped-message"],
-  "docs-error-layers": []
+  "docs-error-layers": [],
+  "sibling-rule-paths": ["cli-path-args-fail-gate"]
 }
 ```
 

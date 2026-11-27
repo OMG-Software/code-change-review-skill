@@ -58,7 +58,7 @@ Language-agnostic. Pair it with the language files for the specific forms these 
 - Trust boundaries: is client-supplied data trusted for prices, roles, IDs or redirects?
 - Secrets: hard-coded keys, secrets in logs, errors or URLs, overly broad tokens.
 - Unsafe deserialization, XXE, SSRF (user-controlled URLs fetched server-side), open redirects.
-- Path traversal on any file path built from input.
+- Path traversal on any file path built from input. Input includes the command-line arguments and environment of tools that CI jobs or agents run, even when today's only caller is trusted: analysers such as SonarQube treat them as untrusted (`pythonsecurity:S8707`), and the project may already have its answer (resolve the path and require it to stay under a work folder, or take no path arguments at all). Follow that answer.
 - Crypto: home-grown schemes, weak algorithms, non-constant-time comparison of secrets, predictable randomness.
 - Output encoding: XSS where data reaches HTML or JS contexts.
 - DoS vectors: unbounded input sizes, regex backtracking (ReDoS), unbounded loops or recursion on input.
@@ -124,6 +124,7 @@ Language-agnostic. Pair it with the language files for the specific forms these 
 ### Consistency
 - Matches the codebase's established patterns for errors, logging, naming, file layout and dependency injection.
 - Doesn't introduce a second way of doing something the codebase already does one way.
+- Follows the rules that recent commits applied to sibling code. A sibling changed "for Sonar Sxxxx" or "so it takes no file arguments" sets the rule for the new code next to it (`SKILL.md`, step 3).
 
 ### Readability
 - Names say what things are. Functions do one thing at one level of abstraction.

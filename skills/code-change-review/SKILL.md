@@ -48,6 +48,7 @@ Work out exactly what is under review before reading any code. If the user didn'
   ```
 
   `--paginate` follows the threads past the first 100. A thread whose `comments.totalCount` is over 100 has more replies; fetch them with `node(id:<thread id>){... on PullRequestReviewThread{comments(first:100,after:<cursor>){…}}}` before relying on it.
+- **Read the checks and analyser alerts at the pinned head.** `gh pr checks <n-or-url>` lists every check and its state (`--required` narrows it to the ones branch protection requires). `gh api "repos/<owner>/<repo>/code-scanning/alerts?ref=refs/pull/<n>/head&state=open"` lists the open alerts that analysers such as SonarQube Cloud or CodeQL raised on the PR. A failing check or a new alert on code the change adds is a lead to verify like any other, and the gate it belongs to decides whether the PR can merge (step 3). A check that is still running is not a pass: name it in the verdict.
 
 Also get the **intent**: the PR description, commit messages, linked issue, or ask the user in one line if none exists. You can't judge whether code is right without knowing what it is meant to do.
 
@@ -112,6 +113,8 @@ The diff shows what changed, not what it affects. Before judging anything:
 - **Read the decision records** the change touches: ADRs, design docs, comments next to the code. A documented trade-off is not a defect, unless it breaks a spec, requirement or security invariant.
 - **Learn the project's conventions:** linter and formatter configs, `CLAUDE.md`/`CONTRIBUTING.md`, and how nearby code handles errors, logging and tests. Judge consistency against this codebase, not against general taste.
 - **Search for existing helpers** before accepting new utility code. Re-implementing something the repo already has only shows up when you look outside the diff.
+- **Know the gates the change must pass.** Find the analysers the project runs on every change and keeps green (`sonar-project.properties`, `.github/workflows/*sonar*` or `*codeql*`, linters wired into CI, a quality gate described in `AGENTS.md`) and judge new code by their rules as well as by real risk. Your review often runs before they finish, so predict what the change will trip rather than waiting to read the result.
+- **Read the recent history of each file the change touches** (`git log --format='%h %s%n%b' -n 20 <reviewed_head_sha> -- <file>`). A commit that changed sibling code to satisfy a rule ("Sonar S8707", "path traversal", "takes no file arguments") records a rule this change must follow too, even when no doc states it. New code that brings back what that commit removed is a finding.
 
 ### 4. Review by angle, in priority order
 

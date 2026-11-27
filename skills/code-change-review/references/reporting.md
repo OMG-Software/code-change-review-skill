@@ -16,6 +16,8 @@ Severity is a priority rank from `[P1]` (most severe) to `[P5]` (least severe), 
 
 `[P1]` and `[P2]` block the merge; `[P3]` to `[P5]` do not.
 
+A change that fails a gate the project enforces or keeps green (a required check, or an analyser's quality gate such as SonarQube's) cannot merge as it stands, so the finding is at least `[P2] MAJOR` however small the real risk. This holds before the gate has run, when the new code plainly breaks a rule the gate enforces. In the body, name the gate and the rule, then rate the real risk on its own ("SonarQube S8707 fails the quality gate; the real risk is low because only the release job passes these paths"). The rule below, to pick the less severe of two labels, does not lower it: the gate, not the reviewer, decides that it blocks. A false alarm from the analyser is still `[P2]`, with the fix being to suppress it the way the project records suppressions, since it blocks until someone does.
+
 `(Defect)` versus `(Quality)` depends on whether the code behaves wrongly, not on what kind of work the fix is. A missing test is `[P4] MINOR (Quality)` on its own; if the untested code is actually broken, report the bug at its own rank and mention the missing test in the fix.
 
 Documentation behaves wrongly when someone acts on it. A false claim that an operator, user or integrator will follow (a recovery step that doesn't recover, a wrong error code to search for, a compatibility promise the format breaks) is a `(Defect)`, ranked by what following it causes, on the same scale as code: `[P3]` usually, `[P2]` when following it leaves them stuck in normal use, and `[P1]` when following it in normal use loses or corrupts data (a recovery step that deletes the only copy). Stale or imprecise wording that changes no one's action is `[P4] MINOR (Quality)`.
@@ -94,7 +96,7 @@ The helper requires an unchanged head. If only the base tip advanced, it queries
 ```markdown
 ## Review: <short description of the change>
 
-**Verdict:** <Ready to merge | Merge after fixes | Needs rework | Incomplete review>. <One sentence on the most important issue, why it's clean, or which material was unavailable. Use Incomplete review when change-set coverage cannot be established.>
+**Verdict:** <Ready to merge | Merge after fixes | Needs rework | Incomplete review>. <One sentence on the most important issue, why it's clean, or which material was unavailable. Use Incomplete review when change-set coverage cannot be established. Never say Ready to merge while a gating check fails; name any that are still running.>
 
 **Scope:** <what was reviewed, e.g. "PR #123 (feature/x → main), 14 files, +420/-85">. Languages: <list>. PR snapshots: <reviewed_head_sha>, <reviewed_base_sha>, <reviewed_merge_base_sha>.
 
