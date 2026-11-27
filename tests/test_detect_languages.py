@@ -24,6 +24,32 @@ def git(repo: Path, *args: str) -> str:
                           stdout=subprocess.PIPE, stderr=subprocess.PIPE).stdout.strip()
 
 
+@contextlib.contextmanager
+def isolated_git_repo():
+    """Yield an empty, configured Git repository in a temporary directory.
+
+    Global/system Git hooks, templates and config are not inherited; the
+    detector invokes git itself, so the environment stays patched until exit.
+    """
+    with tempfile.TemporaryDirectory() as temp:
+        root = Path(temp)
+        repo = root / "repo"
+        repo.mkdir()
+        template = root / "empty-git-template"
+        template.mkdir()
+        with patch.dict(os.environ, {
+            "GIT_CONFIG_NOSYSTEM": "1",
+            "GIT_CONFIG_GLOBAL": os.devnull,
+            "GIT_CONFIG_COUNT": "0",
+            "GIT_CONFIG_PARAMETERS": "",
+            "GIT_TEMPLATE_DIR": str(template),
+        }):
+            git(repo, "init", "-q")
+            git(repo, "config", "user.name", "Test")
+            git(repo, "config", "user.email", "test@example.invalid")
+            yield repo
+
+
 class LanguageDetectionTests(unittest.TestCase):
     def test_interpreters_and_env_options(self):
         cases = {
@@ -230,77 +256,45 @@ class AxisRoutingTests(unittest.TestCase):
 @unittest.skipUnless(shutil.which("git"), "git required")
 class GitSnapshotTests(unittest.TestCase):
     def test_pinned_head_excludes_worktree_and_untracked_files(self):
-        with tempfile.TemporaryDirectory() as temp:
-            root = Path(temp)
-            repo = root / "repo"
-            repo.mkdir()
-            template = root / "empty-git-template"
-            template.mkdir()
-            # Do not inherit global/system Git hooks, templates or config;
-            # the detector invokes git itself, so isolate that process too.
-            with patch.dict(os.environ, {
-                "GIT_CONFIG_NOSYSTEM": "1",
-                "GIT_CONFIG_GLOBAL": os.devnull,
-                "GIT_CONFIG_COUNT": "0",
-                "GIT_CONFIG_PARAMETERS": "",
-                "GIT_TEMPLATE_DIR": str(template),
-            }):
-                git(repo, "init", "-q")
-                git(repo, "config", "user.name", "Test")
-                git(repo, "config", "user.email", "test@example.invalid")
-                (repo / "original.py").write_text("x = 1\n")
-                git(repo, "add", ".")
-                git(repo, "commit", "-qm", "base")
-                base = git(repo, "rev-parse", "HEAD")
-                (repo / "original.py").write_text("x = 2\n")
-                (repo / "thing.proto").write_text('syntax = "proto3";\n')
-                git(repo, "add", ".")
-                git(repo, "commit", "-qm", "head")
-                head = git(repo, "rev-parse", "HEAD")
-                (repo / "scratch.go").write_text("package scratch\n")
-                (repo / "original.py").write_text("x = 3\n")
-                changed, actual_root, merge_base, head_sha = dl.files_from_git(base, repo, head)
-                self.assertEqual(changed, ["original.py", "thing.proto"])
-                self.assertEqual((actual_root, merge_base, head_sha), (repo, base, head))
-                working, _, _, no_head = dl.files_from_git("HEAD", repo)
-                self.assertEqual(working, ["original.py", "scratch.go"])
-                self.assertIsNone(no_head)
+        with isolated_git_repo() as repo:
+            (repo / "original.py").write_text("x = 1\n")
+            git(repo, "add", ".")
+            git(repo, "commit", "-qm", "base")
+            base = git(repo, "rev-parse", "HEAD")
+            (repo / "original.py").write_text("x = 2\n")
+            (repo / "thing.proto").write_text('syntax = "proto3";\n')
+            git(repo, "add", ".")
+            git(repo, "commit", "-qm", "head")
+            head = git(repo, "rev-parse", "HEAD")
+            (repo / "scratch.go").write_text("package scratch\n")
+            (repo / "original.py").write_text("x = 3\n")
+            changed, actual_root, merge_base, head_sha = dl.files_from_git(base, repo, head)
+            self.assertEqual(changed, ["original.py", "thing.proto"])
+            self.assertEqual((actual_root, merge_base, head_sha), (repo, base, head))
+            working, _, _, no_head = dl.files_from_git("HEAD", repo)
+            self.assertEqual(working, ["original.py", "scratch.go"])
+            self.assertIsNone(no_head)
 
     def test_axis_signals_come_from_the_pinned_head(self):
-        with tempfile.TemporaryDirectory() as temp:
-            root = Path(temp)
-            repo = root / "repo"
-            repo.mkdir()
-            template = root / "empty-git-template"
-            template.mkdir()
-            with patch.dict(os.environ, {
-                "GIT_CONFIG_NOSYSTEM": "1",
-                "GIT_CONFIG_GLOBAL": os.devnull,
-                "GIT_CONFIG_COUNT": "0",
-                "GIT_CONFIG_PARAMETERS": "",
-                "GIT_TEMPLATE_DIR": str(template),
-            }):
-                git(repo, "init", "-q")
-                git(repo, "config", "user.name", "Test")
-                git(repo, "config", "user.email", "test@example.invalid")
-                (repo / "app.py").write_text("x = 1\n")
-                (repo / "old_billing.py").write_text("import stripe\n")
-                git(repo, "add", ".")
-                git(repo, "commit", "-qm", "base")
-                base = git(repo, "rev-parse", "HEAD")
-                (repo / "app.py").write_text("from flask import Flask\n")
-                (repo / "old_billing.py").unlink()
-                git(repo, "add", "-A")
-                git(repo, "commit", "-qm", "head")
-                head = git(repo, "rev-parse", "HEAD")
-                (repo / "app.py").write_text("import anthropic\n")   # working tree differs from head
-                files, actual_root, merge_base, head_sha = dl.files_from_git(base, repo, head)
-                read_text = dl._first_of(dl.text_at(head_sha, actual_root), dl.text_at(merge_base, actual_root))
-                result = dl.detect([(f, None) for f in files], None, read_text)
-                axes = {a["file"].rsplit("/", 1)[1]: a["triggered_by"] for a in result["axes"]}
-                self.assertEqual(axes.get("web.md"), ["app.py"])
-                self.assertEqual(axes.get("money.md"), ["old_billing.py"])   # deleted: read from the base
-                self.assertNotIn("llm-calls.md", axes)
+        with isolated_git_repo() as repo:
+            (repo / "app.py").write_text("x = 1\n")
+            (repo / "old_billing.py").write_text("import stripe\n")
+            git(repo, "add", ".")
+            git(repo, "commit", "-qm", "base")
+            base = git(repo, "rev-parse", "HEAD")
+            (repo / "app.py").write_text("from flask import Flask\n")
+            (repo / "old_billing.py").unlink()
+            git(repo, "add", "-A")
+            git(repo, "commit", "-qm", "head")
+            head = git(repo, "rev-parse", "HEAD")
+            (repo / "app.py").write_text("import anthropic\n")   # working tree differs from head
+            files, actual_root, merge_base, head_sha = dl.files_from_git(base, repo, head)
+            read_text = dl._first_of(dl.text_at(head_sha, actual_root), dl.text_at(merge_base, actual_root))
+            result = dl.detect([(f, None) for f in files], None, read_text)
+            axes = {a["file"].rsplit("/", 1)[1]: a["triggered_by"] for a in result["axes"]}
+            self.assertEqual(axes.get("web.md"), ["app.py"])
+            self.assertEqual(axes.get("money.md"), ["old_billing.py"])   # deleted: read from the base
+            self.assertNotIn("llm-calls.md", axes)
 
 
 if __name__ == "__main__":
