@@ -26,6 +26,10 @@ def git(repo: Path, *args: str) -> str:
                           stdout=subprocess.PIPE, stderr=subprocess.PIPE).stdout.strip()
 
 
+_GIT_LOCATION_VARS = ("GIT_DIR", "GIT_WORK_TREE", "GIT_INDEX_FILE", "GIT_COMMON_DIR", "GIT_OBJECT_DIRECTORY",
+                      "GIT_ALTERNATE_OBJECT_DIRECTORIES", "GIT_PREFIX", "GIT_NAMESPACE")
+
+
 @contextlib.contextmanager
 def isolated_git_repo():
     """Yield an empty, configured Git repository in a temporary directory.
@@ -46,6 +50,10 @@ def isolated_git_repo():
             "GIT_CONFIG_PARAMETERS": "",
             "GIT_TEMPLATE_DIR": str(template),
         }):
+            # A git hook running this suite sets these to the enclosing repository, which
+            # would then win over cwd=repo. patch.dict restores them on exit.
+            for name in _GIT_LOCATION_VARS:
+                os.environ.pop(name, None)
             git(repo, "init", "-q")
             git(repo, "config", "user.name", "Test")
             git(repo, "config", "user.email", "test@example.invalid")
@@ -211,8 +219,8 @@ class AxisRoutingTests(unittest.TestCase):
                 self.assertTrue(set(case["axes"]) <= set(ra.AXES), case["axes"])
                 sides = _diff_sides(case)
                 # The production path: detect() decides what to scan; head and base both count.
-                read_text = dl._all_of(lambda p: sides[p][0] or None, lambda p: sides[p][1] or None)
-                result = dl.detect([(p, None) for p in sides], None, read_text)
+                read_texts = [lambda p: sides[p][0] or None, lambda p: sides[p][1] or None]
+                result = dl.detect([(p, None) for p in sides], None, read_texts)
                 selected = {Path(a["file"]).stem for a in result["axes"]}
                 self.assertTrue(set(case["axes"]) <= selected,
                                 f"{case['id']} needs {case['axes']}, detector chose {sorted(selected)}")
@@ -343,8 +351,8 @@ class GitSnapshotTests(unittest.TestCase):
             head = git(repo, "rev-parse", "HEAD")
             (repo / "app.py").write_text("import anthropic\n")   # working tree differs from head
             files, actual_root, merge_base, head_sha = dl.files_from_git(base, repo, head)
-            read_text = dl._all_of(dl.text_at(head_sha, actual_root), dl.text_at(merge_base, actual_root))
-            result = dl.detect([(f, None) for f in files], None, read_text)
+            read_texts = [dl.text_at(head_sha, actual_root), dl.text_at(merge_base, actual_root)]
+            result = dl.detect([(f, None) for f in files], None, read_texts)
             axes = {a["file"].rsplit("/", 1)[1]: a["triggered_by"] for a in result["axes"]}
             self.assertEqual(axes.get("web.md"), ["app.py"])
             self.assertEqual(axes.get("money.md"), ["old_billing.py"])   # deleted: read from the base
@@ -380,6 +388,22 @@ class DetectorCliTests(unittest.TestCase):
             git(repo, "reset", "-q", "--soft", "HEAD~1")
             working = run_detector(repo, "--json", "--git", "HEAD")
             self.assertEqual(axes_of(working).get("web"), ["settings.py"])
+
+    def test_interpreter_rewrite_keeps_the_old_interpreters_axes(self):
+        with isolated_git_repo() as repo:
+            (repo / "tool").write_text("#!/bin/sh\necho hi\n")
+            git(repo, "add", ".")
+            git(repo, "commit", "-qm", "base")
+            (repo / "tool").write_text("#!/usr/bin/env python3\nprint('hi')\n")
+            git(repo, "commit", "-qam", "head")
+            result = run_detector(repo, "--json", "--git", "HEAD~1", "--head", git(repo, "rev-parse", "HEAD"))
+            self.assertEqual(axes_of(result).get("cross-platform"), ["tool"])   # from the base's sh
+            self.assertEqual([r["file"] for r in result["references"]], ["references/languages/python.md"])
+
+    def test_blob_reads_follow_the_environment_at_call_time(self):
+        with isolated_git_repo() as repo, patch.dict(os.environ, {"GIT_DIR": str(repo / "missing")}):
+            self.assertEqual(dl._blob_env()["GIT_DIR"], str(repo / "missing"))
+        self.assertNotEqual(dl._blob_env().get("GIT_DIR"), str(repo / "missing"))
 
     def test_git_paths_resolve_from_the_root_only(self):
         with isolated_git_repo() as repo:

@@ -32,7 +32,7 @@ import shlex
 import subprocess
 import sys
 from pathlib import Path, PurePosixPath
-from typing import Callable
+from typing import Callable, Sequence
 
 # Importing a sibling module would otherwise write scripts/__pycache__/ into the checkout
 # being reviewed, where `--git` then reports it as an untracked change.
@@ -394,10 +394,14 @@ def files_staged(cwd: Path) -> tuple[list[str], Path, str | None]:
     return sorted(changed), root, head
 
 
-# A blobless partial clone would otherwise fetch a missing blob from its remote, and
-# write it into .git, just to route a file. Unavailable blobs are routed on paths.
-# (Git versions without GIT_NO_LAZY_FETCH ignore it.)
-_BLOB_ENV = {**os.environ, "GIT_NO_LAZY_FETCH": "1"}
+def _blob_env() -> dict[str, str]:
+    """The caller's environment, read at call time, plus GIT_NO_LAZY_FETCH.
+
+    A blobless partial clone would otherwise fetch a missing blob from its remote, and
+    write it into .git, just to route a file. Unavailable blobs are routed on paths.
+    (Git versions without GIT_NO_LAZY_FETCH ignore it.)
+    """
+    return {**os.environ, "GIT_NO_LAZY_FETCH": "1"}
 
 
 def _blob_reader(rev: str, root: Path, limit: int,
@@ -408,7 +412,7 @@ def _blob_reader(rev: str, root: Path, limit: int,
     whole. A missing (or empty) blob reads as None.
     """
     def read(path: str) -> str | None:
-        proc = subprocess.Popen(["git", "cat-file", "blob", f"{rev}:{path}"], cwd=root, env=_BLOB_ENV,
+        proc = subprocess.Popen(["git", "cat-file", "blob", f"{rev}:{path}"], cwd=root, env=_blob_env(),
                                 stdout=subprocess.PIPE, stderr=subprocess.DEVNULL)
         try:
             data = proc.stdout.read(limit)              # empty if the blob doesn't exist
@@ -452,17 +456,6 @@ def _first_of(*readers: Callable[[str], str | None]) -> Callable[[str], str | No
             if line is not None:
                 return line
         return None
-    return read
-
-
-def _all_of(*readers: Callable[[str], str | None]) -> Callable[[str], str | None]:
-    """Combine text readers: every side that has the file contributes its text.
-
-    Axes come from both sides of a change, because a signal the change removes (a CSRF
-    setting, the only consumer in a file) calls for that axis's checks as much as one it adds.
-    """
-    def read(path: str) -> str | None:
-        return "\n".join(t for t in (reader(path) for reader in readers) if t) or None
     return read
 
 
@@ -524,14 +517,15 @@ def resolve_inputs(paths: list[str], first_base: Path, other_base: Path, repo_ro
 
 def detect(entries: list[tuple[str, Path | None]],
            read_old_first_line: Callable[[str], str | None] | None = None,
-           read_text: Callable[[str], str | None] | None = None) -> dict:
+           read_texts: Sequence[Callable[[str], str | None]] = ()) -> dict:
     """Classify every changed file into language references and review axes.
 
     A file's text is what is on disk at `abs_path` (resolve_inputs only sets it for files
-    inside the repository) plus whatever `read_text` returns (the other side of the
-    change: the base, or the revision under review and the base). Both sides count, so
-    removing a file's last web signal still loads the web axis. Prose and image files are
-    matched on their paths only, so a README that mentions caching doesn't load the caching axis.
+    inside the repository) plus what each of `read_texts` returns (the other sides of the
+    change: the base, or the revision under review and the base). Every side counts, so
+    removing a file's last web signal still loads the web axis, and so does each side's
+    shebang. Prose and image files are matched on their paths only, so a README that
+    mentions caching doesn't load the caching axis.
     """
     matched: dict[str, list[str]] = {}
     axes: dict[str, list[str]] = {}
@@ -544,11 +538,19 @@ def detect(entries: list[tuple[str, Path | None]],
         if not refs and scannable:
             unmapped.append(rel)
         text = None
+        axis_langs = list(refs)
         if scannable:
-            sides = (_text_from_disk(abs_path) if abs_path is not None else None,
-                     read_text(rel) if read_text is not None else None)
+            sides = [_text_from_disk(abs_path) if abs_path is not None else None,
+                     *(read(rel) for read in read_texts)]
             text = "\n".join(t for t in sides if t) or None
-        for axis in review_axes.classify_axes(rel, text, refs):
+            if not PurePosixPath(rel).suffix:
+                # `refs` has one shebang (head first); a script rewritten from sh to Python
+                # still needs the axes its old interpreter selects.
+                for side in sides:
+                    ref = shebang_ref(side.split("\n", 1)[0]) if side else None
+                    if ref and ref not in axis_langs:
+                        axis_langs.append(ref)
+        for axis in review_axes.classify_axes(rel, text, axis_langs):
             axes.setdefault(axis, []).append(rel)
     order = list(review_axes.AXES)
     return {
@@ -704,7 +706,7 @@ def main() -> int:
 
     cwd = Path.cwd()
     read_old: Callable[[str], str | None] | None = None
-    read_text: Callable[[str], str | None] | None = None
+    read_texts: list[Callable[[str], str | None]] = []
     if args.git or args.staged:
         try:
             if args.staged:
@@ -714,13 +716,13 @@ def main() -> int:
             else:
                 files, repo_root, base, head_sha = files_from_git(args.git, cwd, args.head)
             read_old = first_line_at(base, repo_root) if base else None
-            read_text = text_at(base, repo_root) if base else None
+            read_texts = [text_at(base, repo_root)] if base else []
             if head_sha is not None:
                 # The working tree isn't the code under review: read each file from REV (or
                 # the index), falling back to the base for a shebang if REV deleted the file.
-                head_line, head_text = first_line_at(head_sha, repo_root), text_at(head_sha, repo_root)
+                head_line = first_line_at(head_sha, repo_root)
                 read_old = _first_of(head_line, read_old) if read_old else head_line
-                read_text = _all_of(head_text, read_text) if read_text else head_text
+                read_texts.insert(0, text_at(head_sha, repo_root))
         except ValueError as e:
             print(f"error: {e}", file=sys.stderr)
             return 2
@@ -758,7 +760,7 @@ def main() -> int:
     else:
         entries = resolve_inputs(files, repo_root, cwd, repo_root)
 
-    result = detect(entries, read_old, read_text)
+    result = detect(entries, read_old, read_texts)
     if args.json:
         print(json.dumps(result, indent=2))
     else:
